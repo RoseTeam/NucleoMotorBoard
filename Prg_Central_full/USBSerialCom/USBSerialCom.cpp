@@ -11,7 +11,12 @@ USBSerialCom::USBSerialCom(Serial& _pc) : pc(_pc){
      //nbr_incom_char = 0;  
     UPower = true;        
     sign = false;
-    pc.baud(500000);
+    
+    //------------------------------------
+// Hyperterminal configuration
+// 460800 bauds, 8-bit data, no parity
+//------------------------------------
+    pc.baud(460800);
     
     KpPL = KP_POLAR_LINEAR;
     KdPL = KD_POLAR_LINEAR;
@@ -33,19 +38,20 @@ bool USBSerialCom::checkTimeOut()
     //pc.printf("DO%i!",t_timeout_com.read_ms() );
     if (t_timeout_com.read_ms() > COM_TIMEOUT  )
         {                 
-       Xorder = 0;
-       Yorder = 0; 
-       Aorder = 0; 
-       Lspeed = 0; 
-       Rspeed = 0; 
-       Ttwist = 0.0; 
-       Vtwist = 0.0; 
-       SStatus = 0; 
-       UPower = 1;      
+           Xorder = 0;
+           Yorder = 0; 
+           Aorder = 0; 
+           Lspeed = 0; 
+           Rspeed = 0; 
+           Ttwist = 0.0; 
+           Vtwist = 0.0; 
+           SStatus = 0; 
+           UPower = 1;      
        
-       return 1;
-                }
-    else { return 0;}
+           return 1;
+        }
+        
+    else { return 0; }
 }
         
 void USBSerialCom::serialCallback()

@@ -15,10 +15,7 @@ DigitalOut myled(LED1);
 //SerialParser ComPC(SERIAL_TX, SERIAL_RX, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
 //SerialParser ComPC(PA_11, PA_12, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
 
-//------------------------------------
-// Hyperterminal configuration
-// 500000 bauds, 8-bit data, no parity
-//------------------------------------
+
 
 Serial pc(SERIAL_TX, SERIAL_RX);   //create a Serial COM port over the mini USB plug of the ST Nucleo
 
@@ -63,8 +60,9 @@ int main()
             
             }
           
-        
     
+       
+    if( ComPC.checkTimeOut() ) {    count++;     }
         
     if (t_com.read_ms() > 50)
       {
@@ -75,11 +73,10 @@ int main()
         pc.printf("L%ld!",asser.getWheelL());
         pc.printf("R%ld!",asser.getWheelR()); 
         
-        if( ComPC.checkTimeOut() ) {   pc.printf("D:TOut!");   }
-        
-        t_com.reset();
-        
-        //ComPC.sendCoeffs();
+        if (count > 0) { pc.printf("D:To!"); }
+        count = 0;
+               
+        t_com.reset();        
       }
       
       

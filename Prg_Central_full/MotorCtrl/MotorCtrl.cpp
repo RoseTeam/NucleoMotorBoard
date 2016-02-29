@@ -214,7 +214,7 @@ void MotorCtrl::SystemCtrl(){
     if(isEnabled){
         Motors.Motor1(motorR);
         Motors.Motor2(motorL);
-        Debug(orien, dist);
+        //Debug(orien, dist);
         
     }
     else {
