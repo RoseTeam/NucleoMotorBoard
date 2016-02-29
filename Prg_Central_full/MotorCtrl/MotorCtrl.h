@@ -56,13 +56,13 @@ public:
     bool DataAvailable();
     void UpdateCmd();
     void Compute();
-    void Interrupt_Handler();
+    void Interrupt_Handler_Encoder();
    // void Control_interrupt();  //call temporal interrupt functions
     void ComputeOdometry();
     void SystemCtrl();
     void ResetCtrl();
     
-    void Debug();
+    void Debug(int orien, int dist);
 
     double getODO_X();
     double getODO_Y();

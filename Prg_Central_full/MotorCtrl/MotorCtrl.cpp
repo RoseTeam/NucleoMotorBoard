@@ -42,7 +42,7 @@ angle_buf(4), distance_buf(4)
     
 
     
-    isEnabled = 0;
+    isEnabled = 1;
     commandUUID = 0;
  // variable de position initialisées
           
@@ -63,7 +63,7 @@ void MotorCtrl::ComputeOdometry()
     
     ODO_Theta = (tickToAngle * angle) + ODO_Theta_Offset; //  mesure la rotation en radian
     
-    ODO_DELTA_X = trueDeltaDistance  * cos(ODO_Theta);
+    ODO_DELTA_X = trueDeltaDistance  * cos(ODO_Theta);   //variation de position du robot sur l'axe X de la table
     ODO_DELTA_Y = trueDeltaDistance* sin(ODO_Theta);  
     
     ODO_DELTA_Theta = ODO_Theta - PREVIOUS_ODO_Theta;
@@ -196,6 +196,10 @@ void MotorCtrl::SystemCtrl(){
     
     float motorL = dist - orien;
     float motorR = dist + orien;
+    
+    
+    //motorL = ComPC.getTtwist()/10000.0*600.0;
+    //motorR = ComPC.getTtwist()/10000.0*600.0;
         
     if (motorL > 255) {motorL = 255;}
     else if (motorL < -255) {motorL = -255;}
@@ -205,10 +209,12 @@ void MotorCtrl::SystemCtrl(){
     pidL = motorL;
     pidR = motorR;
     
+    
+    
     if(isEnabled){
-        Motors.Motor1(motorL);
-        Motors.Motor2(motorR);
-        Debug();
+        Motors.Motor1(motorR);
+        Motors.Motor2(motorL);
+        Debug(orien, dist);
         
     }
     else {
@@ -277,7 +283,7 @@ float MotorCtrl::Compute_PID_Linear(float feedbackLspeed, float setpointLspeed)
 
 
 
-void MotorCtrl::Interrupt_Handler()
+void MotorCtrl::Interrupt_Handler_Encoder()
 {
     wheelLTick = wheelL.getPulses();
     wheelRTick = wheelR.getPulses();
@@ -302,13 +308,16 @@ void MotorCtrl::UpdateCmd()
     
     if (ComPC.getSStatus())
         {
-           ResetCtrl();
+           //ResetCtrl();
         }
+
+
+// enable(ComPC.getUPower());
     
 //angleCommand.SetSpeed(ComPC.getTtwist()); 
 //distanceCommand.SetSpeed(ComPC.getVtwist()); 
 //setTarget(0.3, 0.0, 0.0, 0.0, 3);
-enable(ComPC.getUPower());
+
 //ComPC.sendHeartBeat((long)ComPC.getUPower());
 //ComPC.sendHeartBeat(1);
 }
@@ -330,10 +339,11 @@ void MotorCtrl::Compute()
  // compute target
     //distanceCommand.setTarget(0.1,0.0);//ComPC.getVtwist(),0.0);
     //ComPC.printRobotStatus();
-    distanceCommand.Compute();
+    
+    /*distanceCommand.Compute();
     angleCommand.Compute();
     distanceCommand.blockageDetector(distance);
-    angleCommand.blockageDetector(angle);
+    angleCommand.blockageDetector(angle);*/
        
                                           
     SystemCtrl();
@@ -374,6 +384,6 @@ long MotorCtrl::getWheelR()
     return wheelRTick;
 }
 
-void MotorCtrl::Debug(){    
-      ComPC.sendFeedback(pidL,pidR,pidA,pidT);        
+void MotorCtrl::Debug(int orien, int dist){    
+      ComPC.sendFeedback(pidL,pidR,orien,dist);        
 }

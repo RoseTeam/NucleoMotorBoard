@@ -11,7 +11,7 @@ USBSerialCom::USBSerialCom(Serial& _pc) : pc(_pc){
      //nbr_incom_char = 0;  
     UPower = true;        
     sign = false;
-    pc.baud(115200);
+    pc.baud(500000);
     
     KpPL = KP_POLAR_LINEAR;
     KdPL = KD_POLAR_LINEAR;
@@ -30,9 +30,9 @@ USBSerialCom::USBSerialCom(Serial& _pc) : pc(_pc){
 
 bool USBSerialCom::checkTimeOut()
 {
+    //pc.printf("DO%i!",t_timeout_com.read_ms() );
     if (t_timeout_com.read_ms() > COM_TIMEOUT  )
-        {
-         
+        {                 
        Xorder = 0;
        Yorder = 0; 
        Aorder = 0; 
@@ -41,7 +41,7 @@ bool USBSerialCom::checkTimeOut()
        Ttwist = 0.0; 
        Vtwist = 0.0; 
        SStatus = 0; 
-       UPower = 1;        
+       UPower = 1;      
        
        return 1;
                 }
@@ -98,7 +98,7 @@ void USBSerialCom::serialCallback()
         }
         else //if it is the first bit of the packet, check if it is a standard message
         {
-            if (c == 'X' || c == 'Y' || c == 'A' || c == 'L' || c == 'R' || c == 'T' || c == 'V' || c == 'S' || c == 'U' )
+            if (c == 'X' || c == 'Y' || c == 'A' || c == 'L' || c == 'R' || c == 'T' || c == 'V' || c == 'S' || c == 'U' || c =='I')
                 { incomming_message_type = c; /*pc.printf("u");*/ }
             else if (c == '{' || c == '}' || c == '^' || c == '=' || c == '(' || c == ')' || c == '_' || c == '|')
                 { incomming_message_type = c; /*pc.printf("u");*/ }
@@ -137,10 +137,11 @@ int USBSerialCom::interpretData(){
         else if (incomming_message_type == 'A') {Aorder = incom_data; t_timeout_com.reset();}
         else if (incomming_message_type == 'L') {Lspeed = incom_data; t_timeout_com.reset();}
         else if (incomming_message_type == 'R') {Rspeed = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == 'T') {Ttwist = incom_data; t_timeout_com.reset();}//pc.printf("DT11!",incom_data);}
+        else if (incomming_message_type == 'T') {Ttwist = incom_data; t_timeout_com.reset();}  //pc.printf("DT11!",incom_data);}
         else if (incomming_message_type == 'V') {Vtwist = incom_data; t_timeout_com.reset();} //pc.printf("DV55!",incom_data);}
         else if (incomming_message_type == 'S') {SStatus = true; t_timeout_com.reset();}
         else if (incomming_message_type == 'U') {UPower = (bool)incom_data;  pc.printf("DO%i!",incom_data); t_timeout_com.reset();}
+        else if (incomming_message_type == 'I') {sendCoeffs();}
        
         else if (incomming_message_type == '{') {KpPL = incom_data; t_timeout_com.reset();}
         else if (incomming_message_type == '}') {KdPL = incom_data; t_timeout_com.reset();}
@@ -234,15 +235,15 @@ void USBSerialCom::sendCoeffs(){
 }
 
 void USBSerialCom::sendFeedback(long pidL, long pidR, float pidA, float pidT){
-    static int count = 0;
-    count ++;
-    if (count > 100) {
-    pc.printf("DL%ld!",long(Ttwist));
-        pc.printf("DR%ld!",long(Vtwist));
-        //pc.printf("DA%lf!", pidA);
-        //pc.printf("DT%lf!", pidT);
-        pc.printf("DU%i!", getUPower());
-        count = 0;
+    static int count82 = 0;
+    count82 ++;
+    if (count82 > 100) {
+    pc.printf("DL%ld!",long(pidL));
+    pc.printf("DR%ld!",long(pidR));
+    pc.printf("DO%lf!", pidA);
+    pc.printf("DD%lf!", pidT);
+     //   pc.printf("DU%i!", getUPower());
+        count82 = 0;
         }
 }
     
