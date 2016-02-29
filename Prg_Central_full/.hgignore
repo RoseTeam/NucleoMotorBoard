@@ -17,6 +17,3 @@ syntax: regexp
 Makefile$
 \.ewp$
 \.eww$
-\.htm$
-Debug$
-.settings$

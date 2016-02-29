@@ -30,8 +30,9 @@ class MotorCtrl {
     
 public:    
 
-    MotorCtrl();  //COnstructor 
-    //MotorCtrl();  //COnstructor   
+    //MotorCtrl();  //COnstructor 
+    MotorCtrl(SerialCom& _comPC);  //COnstructor   
+    
     PID PidAngle;
     PID PidDistance;
     float pidAngleOutput;

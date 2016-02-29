@@ -5,7 +5,8 @@
 #define DEUXPI 6.28318530718
 #define PI 3.14159265359
 
-MotorCtrl::MotorCtrl() : wheelL(Encoder1_A, Encoder1_B, NC, ENCODER_RES),wheelR(Encoder2_A, Encoder2_B, NC, ENCODER_RES), 
+MotorCtrl::MotorCtrl(SerialCom& _ComPC) 
+wheelL(Encoder1_A, Encoder1_B, NC, ENCODER_RES),wheelR(Encoder2_A, Encoder2_B, NC, ENCODER_RES), 
 PidAngle(&angle, &pidAngleOutput, &angleCommand.target,KP_POLAR_ANGLE, KI_POLAR_ANGLE, KD_POLAR_ANGLE,-1),
 PidDistance(&distance, &pidDistanceOutput, &distanceCommand.target,KP_POLAR_LINEAR, KI_POLAR_LINEAR, KD_POLAR_LINEAR,-1),
 angle_buf(4), distance_buf(4)
@@ -31,6 +32,7 @@ angle_buf(4), distance_buf(4)
     mode_deplacement = 1;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode)
     
 }
+
 
 
 void MotorCtrl::ComputeOdometry()

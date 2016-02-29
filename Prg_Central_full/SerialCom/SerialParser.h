@@ -54,7 +54,9 @@ class SerialParser: public SerialCom
     float KiPoAng;
     float KdPoAng;
     float KiPoAngSat; //Saturation value for integral term
+    
     MotorCtrl& asser;
+    
     bool metricsEnabled;
     bool odoEnabled;
     
