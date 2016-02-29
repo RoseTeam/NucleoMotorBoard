@@ -1,11 +1,26 @@
+/**********************************************************************************************
+ * Motor Driver Library - Version 1.0
+ * by Lucas Soubeyrand and David
+ 
+ * This Library is licensed under Copyleft
+ 
+ It handles low level (position and speed) control of Continuous Current Motors 
+ and Alpha/Delta control of a dual motot mobile platform
+*********************************************************************************************/
+
+
 #include "MotorCtrl.h"
-#include "SerialParser.h"
+//#include "SerialParser.h"
 #include "mbed.h"
 
 #define DEUXPI 6.28318530718
 #define PI 3.14159265359
 
-MotorCtrl::MotorCtrl(SerialCom& _ComPC) 
+
+
+
+
+MotorCtrl::MotorCtrl(USBSerialCom& _comPC) : ComPC(_comPC),
 wheelL(Encoder1_A, Encoder1_B, NC, ENCODER_RES),wheelR(Encoder2_A, Encoder2_B, NC, ENCODER_RES), 
 PidAngle(&angle, &pidAngleOutput, &angleCommand.target,KP_POLAR_ANGLE, KI_POLAR_ANGLE, KD_POLAR_ANGLE,-1),
 PidDistance(&distance, &pidDistanceOutput, &distanceCommand.target,KP_POLAR_LINEAR, KI_POLAR_LINEAR, KD_POLAR_LINEAR,-1),
@@ -18,21 +33,22 @@ angle_buf(4), distance_buf(4)
     ODO_Theta_Offset = 0.0;
     ODO_khi = 0.0;
     ODO_ds= 0.0;
-    tickToDistance = (3.14159*R_WHEEL/ENCODER_RES)*54.4/100;
+    tickToDistance = (PI*R_WHEEL/ENCODER_RES)*54.4/100;
     
-    tickToAngle =  3.14159*R_WHEEL/(WHEEL_B * ENCODER_RES)* 6.28328530718/5.569498538970947;
+    tickToAngle =  PI*R_WHEEL/(WHEEL_B * ENCODER_RES)* DEUXPI/5.569498538970947;
     
     distanceCommand.SetStepPerMeter(1.0/tickToDistance);
     angleCommand.SetStepPerMeter(1.0/tickToAngle);
+    
+
     
     isEnabled = 0;
     commandUUID = 0;
  // variable de position initialisées
           
-    mode_deplacement = 1;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode)
+    mode_deplacement = 1;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode : polaire)
     
 }
-
 
 
 void MotorCtrl::ComputeOdometry()
@@ -41,12 +57,17 @@ void MotorCtrl::ComputeOdometry()
     previousDistance = distance;
     double trueDeltaDistance = deltaDistance * tickToDistance;
     
+    static double PREVIOUS_ODO_Theta = 0;
+    
     //ODO_ds = deltaDistance/ENCODER_RES;// angle rotation en radians!!!
     
     ODO_Theta = (tickToAngle * angle) + ODO_Theta_Offset; //  mesure la rotation en radian
     
     ODO_DELTA_X = trueDeltaDistance  * cos(ODO_Theta);
     ODO_DELTA_Y = trueDeltaDistance* sin(ODO_Theta);  
+    
+    ODO_DELTA_Theta = ODO_Theta - PREVIOUS_ODO_Theta;
+    PREVIOUS_ODO_Theta = ODO_Theta;
 
     ODO_X = ODO_X + ODO_DELTA_X;
     ODO_Y = ODO_Y + ODO_DELTA_Y;
@@ -119,7 +140,7 @@ void MotorCtrl::setTickToDistance(float pTickToDistance){
     distanceCommand.SetStepPerMeter(1.0/pTickToDistance);
 }
 
-void MotorCtrl::enable(int is_enabled){
+void MotorCtrl::enable(bool is_enabled){
     isEnabled = is_enabled;
     
         distanceCommand.Reset(distance); // reset speed trajectory generator
@@ -127,14 +148,20 @@ void MotorCtrl::enable(int is_enabled){
     
 }
   
+  /*
 void MotorCtrl::SystemCtrl(){    
     
     PidDistance.Compute();
     PidAngle.Compute();
     
+    float setpointAspeed =  ComPC.getTtwist()/100.0;
+    float setpointLspeed =  ComPC.getVtwist()/100.0;
+    
     
     float motorL = pidDistanceOutput + pidAngleOutput;
     float motorR = pidDistanceOutput - pidAngleOutput;
+    
+    ComPC.sendHeartBeat(motorL);
     
     if(isEnabled){
         Motors.Motor1(motorL);
@@ -145,6 +172,110 @@ void MotorCtrl::SystemCtrl(){
         Motors.Motor2(0);
     }
 }
+*/
+
+
+
+void MotorCtrl::SystemCtrl(){    
+
+    float setpointAspeed =  ComPC.getTtwist()/10000.0;
+    float setpointLspeed =  ComPC.getVtwist()/10000.0;
+           
+    //float feedbackAspeed = (ODO_Theta - OLD_ODO_Theta)*TE;    
+    //float feedbackLspeed = ODO_ds / ENCODER_RES * TE;
+    float feedbackAspeed = getODO_SPEED_Theta();    
+    float feedbackLspeed = getODO_SPEED_X();
+    
+    //OLD_ODO_Theta = ODO_Theta;
+    
+    float orien = Compute_PID_Angle(feedbackAspeed, setpointAspeed);
+    float dist = Compute_PID_Linear(feedbackLspeed, setpointLspeed);
+    
+    pidA = orien;
+    pidT = dist; 
+    
+    float motorL = dist - orien;
+    float motorR = dist + orien;
+        
+    if (motorL > 255) {motorL = 255;}
+    else if (motorL < -255) {motorL = -255;}
+    if (motorR > 255) {motorR = 255;}
+    else if (motorR < -255) {motorR = -255;}
+    
+    pidL = motorL;
+    pidR = motorR;
+    
+    if(isEnabled){
+        Motors.Motor1(motorL);
+        Motors.Motor2(motorR);
+        Debug();
+        
+    }
+    else {
+        Motors.Motor1(0);
+        Motors.Motor2(0);
+    }
+    
+    
+
+}
+
+  /*
+ 
+void MotorCtrl::Control_interrupt()
+{
+    CalculVitesse();
+    Odometry();
+    SystemCtrl();    
+}*/
+
+
+
+float MotorCtrl::Compute_PID_Angle(float feedbackAspeed, float setpointAspeed)
+{
+     float error = setpointAspeed - feedbackAspeed;
+     static float old_error = 0.0;
+     float error_dif = error - old_error;
+     old_error = error;
+     
+     
+     float P = error*ComPC.getKpPA();
+     float D = error_dif * ComPC.getKdPA();
+     float I = 0.0;
+     
+     float res = P + I + D;
+     
+     return res;      
+}
+
+
+
+float MotorCtrl::Compute_PID_Linear(float feedbackLspeed, float setpointLspeed)
+{
+     float error = setpointLspeed - feedbackLspeed;
+     static float old_error = 0.0;
+     float error_dif = error - old_error;
+     old_error = error;
+     
+     float P = error*ComPC.getKpPL();
+     float D = error_dif * ComPC.getKdPL();
+     float I = 0.0;
+     
+     float res = (P + D + I);
+     
+     
+     return (res);      
+}
+
+
+
+
+
+
+
+
+
+
 
 void MotorCtrl::Interrupt_Handler()
 {
@@ -159,18 +290,51 @@ bool MotorCtrl::DataAvailable(){
     if (distance_buf.available()){
        distance = distance_buf;
        angle = angle_buf;
+       
+       //ComPC.sendHeartBeat(2);
        return true;
     }
     return false;
 }
 
+void MotorCtrl::UpdateCmd()
+{
+    
+    if (ComPC.getSStatus())
+        {
+           ResetCtrl();
+        }
+    
+//angleCommand.SetSpeed(ComPC.getTtwist()); 
+//distanceCommand.SetSpeed(ComPC.getVtwist()); 
+//setTarget(0.3, 0.0, 0.0, 0.0, 3);
+enable(ComPC.getUPower());
+//ComPC.sendHeartBeat((long)ComPC.getUPower());
+//ComPC.sendHeartBeat(1);
+}
+
+void MotorCtrl::ResetCtrl()  //Reset all the system control variables according to the Reset be from the comyt
+{
+     ODO_Theta = 0;
+    
+    ODO_DELTA_X = 0;
+    ODO_DELTA_Y = 0;
+    ODO_DELTA_Theta = 0;
+
+    ODO_X = 0;
+    ODO_Y = 0;
+}
+
 void MotorCtrl::Compute()
 {
  // compute target
+    //distanceCommand.setTarget(0.1,0.0);//ComPC.getVtwist(),0.0);
+    //ComPC.printRobotStatus();
     distanceCommand.Compute();
     angleCommand.Compute();
     distanceCommand.blockageDetector(distance);
     angleCommand.blockageDetector(angle);
+       
                                           
     SystemCtrl();
 }
@@ -197,7 +361,7 @@ double MotorCtrl::getODO_SPEED_Y(){
 
 double MotorCtrl::getODO_SPEED_Theta()
 {
-    return ODO_SPEED_Theta;
+    return ODO_DELTA_Theta*TE;
 }
 
 long MotorCtrl::getWheelL()
@@ -210,8 +374,6 @@ long MotorCtrl::getWheelR()
     return wheelRTick;
 }
 
-void MotorCtrl::Debug(){
-    
-      //ComPC.sendFeedback(ODO_X,ODO_X,pidA,pidT);
-        
+void MotorCtrl::Debug(){    
+      ComPC.sendFeedback(pidL,pidR,pidA,pidT);        
 }

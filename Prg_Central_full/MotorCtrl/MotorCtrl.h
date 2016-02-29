@@ -1,9 +1,22 @@
+/**********************************************************************************************
+ * Motor Driver Library - Version 1.0
+ * by Lucas Soubeyrand and David
+ 
+ * This Library is licensed under Copyleft
+ 
+ It handles low level (position and speed) control of Continuous Current Motors 
+ and Alpha/Delta control of a dual motot mobile platform.
+ It obviously handles the encoders feedback
+*********************************************************************************************/
+
+
 #ifndef MOTOR_CTRL_H
 #define MOTOR_CTRL_H
  
 #include "mbed.h"
+#include "USBSerialCom.h"
 #include "QEI.h"
-#include "SerialCom.h"
+
 #include "MotorDriver.h"
 #include "pid.h"
 #include "Asserv.h"
@@ -17,9 +30,9 @@
 #define Encoder2_B PB_2
 
 
-#define TE 100                     // Temps d'échantiollonnage voulu  
-#define R_WHEEL 0.025                // rayon des roues codeuses
-#define WHEEL_B 0.188               // écartement des roues codeuses
+#define TE 100                     // Temps d'échantiollonnage voulu en 
+#define R_WHEEL 0.025                // rayon des roues codeuses en m
+#define WHEEL_B 0.188               // écartement des roues codeuses en m
 #define ENCODER_RES 600.0          // Nombre de ticks par tour de roue
 
 //29.7 tick/mm
@@ -31,21 +44,23 @@ class MotorCtrl {
 public:    
 
     //MotorCtrl();  //COnstructor 
-    MotorCtrl(SerialCom& _comPC);  //COnstructor   
+    MotorCtrl(USBSerialCom& _comPC);  //COnstructor 
     
     PID PidAngle;
     PID PidDistance;
     float pidAngleOutput;
     float pidDistanceOutput;
     
-    void enable(int is_enabled);
+    void enable(bool is_enabled);
     
     bool DataAvailable();
+    void UpdateCmd();
     void Compute();
     void Interrupt_Handler();
    // void Control_interrupt();  //call temporal interrupt functions
     void ComputeOdometry();
     void SystemCtrl();
+    void ResetCtrl();
     
     void Debug();
 
@@ -70,6 +85,10 @@ public:
     long getWheelL();
     long getWheelR();
     
+  
+    float Compute_PID_Angle(float feedbackAspeed, float setpointAspeed);
+    float Compute_PID_Linear(float feedbackLspeed, float setpointLspeed);
+    
     Asserv distanceCommand;
     Asserv angleCommand;
 
@@ -80,7 +99,7 @@ public:
 
     bool isEnabled;
 
-    volatile long encoder1Pos;   // ce sont les 2 entier ultra important sur lesquels repose les encodeur, l'odomètrie et l'asservicement
+    volatile long encoder1Pos;   // ce sont les 2 entiers ultra important sur lesquels reposent les encodeurs, l'odomètrie et l'asservicement
     volatile long encoder2Pos;   // volatile ne sert à rien^^
     double encoder_position_old1, encoder_position_old2; 
     
@@ -94,8 +113,8 @@ public:
     
     double tickToDistance;
     double tickToAngle;
-    
-    double ODO_DELTA_X , ODO_DELTA_Y;
+
+    double ODO_DELTA_X , ODO_DELTA_Y , ODO_DELTA_Theta;
     
     int commandUUID; // uid for sync between robot status and cmd sent
     int mode_deplacement;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode)
@@ -104,6 +123,8 @@ public:
     int vitesse_roue_1, vitesse_roue_2, vitesse;
     
    // DigitalOut _pin;
+   float pidA, pidT;
+   int pidR, pidL;
    
 
     QEI wheelL;
@@ -121,6 +142,8 @@ public:
     int wheelRTick;
     
     MotorDriver Motors;
+    
+    USBSerialCom& ComPC;
 
 };
 #endif 

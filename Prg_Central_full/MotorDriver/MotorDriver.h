@@ -1,3 +1,13 @@
+/**********************************************************************************************
+ * Motor Driver Library - Version 1.0
+ * by Lucas Soubeyrand
+ 
+ * This Library is licensed under Copyright
+ 
+ It just interfaces speed (in pourcentage) and direction (digital 0 or 1) into 
+a pwm and digital commands compatible to drive a DFR8 shield from a Nucleo F401
+*********************************************************************************************/
+
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
  
@@ -9,6 +19,8 @@
 
 #define MOTOR_2VIT PB_4
 #define MOTOR_2DIR PB_5
+
+
 
 
 class MotorDriver {
