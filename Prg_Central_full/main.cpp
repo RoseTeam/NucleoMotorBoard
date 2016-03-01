@@ -1,6 +1,7 @@
 #include "mbed.h"
 #include "USBSerialCom.h"
 
+
 #include "MotorCtrl.h"
 //#include "MotorDriver.h"
 
@@ -15,27 +16,24 @@ DigitalOut myled(LED1);
 //SerialParser ComPC(SERIAL_TX, SERIAL_RX, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
 //SerialParser ComPC(PA_11, PA_12, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
 
+//Serial pc(SERIAL_TX, SERIAL_RX);   //create a Serial COM port over the mini USB plug of the ST Nucleo
 
-
-Serial pc(SERIAL_TX, SERIAL_RX);   //create a Serial COM port over the mini USB plug of the ST Nucleo
 
 //MotorCtrl asser
 
-USBSerialCom ComPC(pc);   //handles all the data RX and save them in private variables (coefficient, command setpoint and odom)
+USBSerialCom ComPC;   //handles all the data RX and save them in private variables (coefficient, command setpoint and odom)
 //USBSerialCom ComPC(pc,asser); 
 
 Ticker ticker_motor_ctrl;  //handles the motor control loop frequency
-
 
 MotorCtrl asser(ComPC);// handles the motor control algorithm (access to ComPc to receive the setpoint commands and send debugs)
 
 
 Timer t_com;
 
-
-
 static int taskSelector = 0; // odometry 1/4   asserv 4/4
 int nbReceivedData = 0;
+
 void tickerInterrupt()
 {
     asser.Interrupt_Handler_Encoder();
@@ -45,42 +43,44 @@ int main()
 {
     ticker_motor_ctrl.attach_us(&tickerInterrupt, MOTOR_CTRL_TICKER_PERIOD);
     
-    pc.attach(&ComPC, &USBSerialCom::serialCallback);
-
+    //pc.attach(&ComPC, &USBSerialCom::serialCallback);
+    ComPC.setAsser(&asser);
     t_com.start();
 
     //TODO: Enable a WatchDog !!!
 
     int count = 0;
-    while (1) {
-        //asser.UpdateCmd();
-        if (asser.DataAvailable()) {  
-            asser.ComputeOdometry();          
-            asser.Compute();         
-            
-            }
-          
-    
-       
-    if( ComPC.checkTimeOut() ) {    count++;     }
-        
-    if (t_com.read_ms() > 50)
-      {
-        pc.printf("X%ld!",long(asser.getODO_X()*100));
-        pc.printf("Y%ld!",long(asser.getODO_Y()*100));
-        pc.printf("A%ld!",long(asser.getODO_Theta()*100));
-        
-        pc.printf("L%ld!",asser.getWheelL());
-        pc.printf("R%ld!",asser.getWheelR()); 
-        
-        if (count > 0) { pc.printf("D:To!"); }
-        count = 0;
-               
-        t_com.reset();        
-      }
-      
-      
+    while (1) 
+    {
                 
-        //ComPC.interpretData();
+        
+        
+               
+        if (t_com.read_ms() > 20)
+        {
+            ComPC.processSerialPort();
+            
+            if(ComPC.checkTimeOut())  ComPC.sendHeartBeat(88288);
+            
+            asser.UpdateCmd();
+            asser.DataAvailable();
+          
+            asser.ComputeOdometry();          
+            asser.Compute();   
+            
+            /*pc.printf("X%ld!",long(asser.getODO_X()*100));
+            pc.printf("Y%ld!",long(asser.getODO_Y()*100));
+            pc.printf("A%ld!",long(asser.getODO_Theta()*100));
+            
+            pc.printf("L%ld!",asser.getWheelL());
+            pc.printf("R%ld!",asser.getWheelR()); 
+            
+            if (count > 0) { pc.printf("D:To!"); }
+            count = 0;*/
+            ComPC.printOdo();
+               
+            t_com.reset();        
+        }
+               
     }
 }

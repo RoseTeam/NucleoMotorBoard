@@ -3,37 +3,37 @@
 
 
 #include "mbed.h"
-//#include "MotorCtrl.h"
-//#include "MotorDriver.h"
+#include "BufferedSerial.h"
+
 
 #define NBR_CHAR_NAV 16
 
-#define KP_POLAR_ANGLE 100
+#define KP_POLAR_ANGLE 800
 #define KD_POLAR_ANGLE 0.0
 #define KI_POLAR_ANGLE 0.0
-#define KI_POLAR_ANGLE_SAT 100.0
+#define KI_POLAR_ANGLE_SAT 1.0
 
-#define KP_POLAR_LINEAR 600
+#define KP_POLAR_LINEAR 400
 #define KD_POLAR_LINEAR 0.0
 #define KI_POLAR_LINEAR 0.000
 #define KI_POLAR_LINEAR_SAT 1.0
 
-#define COM_TIMEOUT 100  // in ms
+#define COM_TIMEOUT 500  // in ms
 
+class MotorCtrl;
 
-class USBSerialCom {
+class USBSerialCom 
+{
     
 public:    
 
     //USBSerialCom(Serial& _pc, MotorCtrl& _asser);  //COnstructor 
-    USBSerialCom(Serial& _pc);  //COnstructor 
+    USBSerialCom(void);  //COnstructor 
     
- //   MotorCtrl asser2; 
-
+    void processSerialPort();
     
-
-    void serialCallback(); //function to be called when an event occure on the serial bus (basically store the message type and the message byte in an array if relevant)
-    int interpretData(); //Function to be called when we received the full packet
+    void setAsser(MotorCtrl * a)
+    { asser = a; }
     
     void printMetrics(); // print data like odometri or metrics
     void printOdo(); // print data like odometri or metrics
@@ -63,7 +63,12 @@ public:
     
     bool checkTimeOut();
     
-private:  
+ //   MotorCtrl asser2; 
+    
+protected:
+  
+    
+    int interpretData(); //Function to be called when we received the full packet
 
     Timer t_timeout_com;
     
@@ -100,8 +105,9 @@ private:
     bool metricsEnabled;
     bool odoEnabled;
     
-    Serial& pc;
+    BufferedSerial pc;
    // MotorCtrl& asser;
+   MotorCtrl * asser;
     
 };
 

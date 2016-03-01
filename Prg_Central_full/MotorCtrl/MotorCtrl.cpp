@@ -180,6 +180,7 @@ void MotorCtrl::SystemCtrl(){
 
     float setpointAspeed =  ComPC.getTtwist()/10000.0;
     float setpointLspeed =  ComPC.getVtwist()/10000.0;
+    
            
     //float feedbackAspeed = (ODO_Theta - OLD_ODO_Theta)*TE;    
     //float feedbackLspeed = ODO_ds / ENCODER_RES * TE;
@@ -214,7 +215,7 @@ void MotorCtrl::SystemCtrl(){
     if(isEnabled){
         Motors.Motor1(motorR);
         Motors.Motor2(motorL);
-        //Debug(orien, dist);
+       Debug(orien , dist);
         
     }
     else {
@@ -384,6 +385,6 @@ long MotorCtrl::getWheelR()
     return wheelRTick;
 }
 
-void MotorCtrl::Debug(int orien, int dist){    
+void MotorCtrl::Debug(float orien, float dist){    
       ComPC.sendFeedback(pidL,pidR,orien,dist);        
 }

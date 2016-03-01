@@ -62,7 +62,7 @@ public:
     void SystemCtrl();
     void ResetCtrl();
     
-    void Debug(int orien, int dist);
+    void Debug(float orien, float dist);
 
     double getODO_X();
     double getODO_Y();
