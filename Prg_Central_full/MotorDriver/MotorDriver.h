@@ -30,7 +30,14 @@ public:
 
   //Attention, les 2 moteurs ne tournent pas dans le meme sens => Attention:engendre bcp d'érreurs !!!
   
-  MotorDriver(PinName pinMotor1Vit, PinName pinMotor1Dir, PinName pinMotor2Vit, PinName pinMotor2Dir) : Motor1Vit(pinMotor1Vit), Motor1Dir(pinMotor1Dir), Motor2Vit(pinMotor2Vit), Motor2Dir(pinMotor2Dir)
+  MotorDriver(PinName pinMotor1Vit, 
+			  PinName pinMotor1Dir, 
+			  PinName pinMotor2Vit, 
+			  PinName pinMotor2Dir) : 
+				Motor1Vit(pinMotor1Vit), 
+				Motor1Dir(pinMotor1Dir), 
+				Motor2Vit(pinMotor2Vit), 
+				Motor2Dir(pinMotor2Dir)
   {      
   };
   

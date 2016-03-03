@@ -1,10 +1,8 @@
 #include "mbed.h"
 #include "USBSerialCom.h"
 
-
 #include "MotorCtrl.h"
 //#include "MotorDriver.h"
-
 
 #define MOTOR_CTRL_TICKER_PERIOD 4000
 #define TICKER_MAX_DURATION 2000
@@ -17,7 +15,6 @@ DigitalOut myled(LED1);
 //SerialParser ComPC(PA_11, PA_12, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
 
 //Serial pc(SERIAL_TX, SERIAL_RX);   //create a Serial COM port over the mini USB plug of the ST Nucleo
-
 
 //MotorCtrl asser
 
@@ -51,11 +48,7 @@ int main()
 
     int count = 0;
     while (1) 
-    {
-                
-        
-        
-               
+    {   
         if (t_com.read_ms() > 20)
         {
             ComPC.processSerialPort();
@@ -65,8 +58,8 @@ int main()
             asser.UpdateCmd();
             asser.DataAvailable();
           
-            asser.ComputeOdometry();          
-            asser.Compute();   
+            asser.ComputeOdometry();
+            asser.Compute();
             
             /*pc.printf("X%ld!",long(asser.getODO_X()*100));
             pc.printf("Y%ld!",long(asser.getODO_Y()*100));
@@ -81,6 +74,6 @@ int main()
                
             t_com.reset();        
         }
-               
+        
     }
 }

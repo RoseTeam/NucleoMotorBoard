@@ -30,14 +30,12 @@
 #define Encoder2_B PB_2
 
 
-#define TE 100                     // Temps d'échantiollonnage voulu en 
-#define R_WHEEL 0.025                // rayon des roues codeuses en m
-#define WHEEL_B 0.188               // écartement des roues codeuses en m
+#define TE 100                     // Temps d'échantillonnage voulu en ms
+#define R_WHEEL 0.025              // rayon des roues codeuses en m
+#define WHEEL_B 0.188              // écartement des roues codeuses en m
 #define ENCODER_RES 600.0          // Nombre de ticks par tour de roue
 
 //29.7 tick/mm
-
-
 
 class MotorCtrl {
     
@@ -114,19 +112,17 @@ public:
     double tickToDistance;
     double tickToAngle;
 
-    double ODO_DELTA_X , ODO_DELTA_Y , ODO_DELTA_Theta;
+    double ODO_DELTA_X, ODO_DELTA_Y, ODO_DELTA_Theta;
     
     int commandUUID; // uid for sync between robot status and cmd sent
     int mode_deplacement;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode)
-     
-  
+	
     int vitesse_roue_1, vitesse_roue_2, vitesse;
     
-   // DigitalOut _pin;
-   float pidA, pidT;
-   int pidR, pidL;
+	// DigitalOut _pin;
+	float pidA, pidT;
+	int pidR, pidL;
    
-
     QEI wheelL;
     QEI wheelR;
     
@@ -144,6 +140,6 @@ public:
     MotorDriver Motors;
     
     USBSerialCom& ComPC;
-
 };
+
 #endif 
