@@ -122,52 +122,54 @@ bool USBSerialCom::checkTimeOut()
 //Function to be called when we have received the full packet
 int USBSerialCom::interpretData()
 {    
-        int i = 0;
-        long incom_data = 0; 
+    int i = 0;
+    long incom_data = 0; 
        
-        while(inputString[i] != '!')                
-        { 
-            signed char incom_byte = inputString[i]-48;
+    while(inputString[i] != '!')                
+    { 
+        signed char incom_byte = inputString[i]-48;
             
-            if (incom_byte >= 0 && incom_byte < 10)
-            { 
-				incom_data = incom_data * 10 + incom_byte;
-			}
-            else
-            { 
-            //default nbr received
-            }                
-            i++;
-        }
+        if (incom_byte >= 0 && incom_byte < 10)
+        { 
+			incom_data = incom_data * 10 + incom_byte;
+		}
+        else
+        { 
+        //default nbr received
+        }                
+        i++;
+    }
 
-        if(sign) {  incom_data = -incom_data; }
+    if(sign) {  incom_data = -incom_data; }
         
-        if (incomming_message_type == 'X') {Xorder = incom_data; t_timeout_com.reset(); /*myled = !myled; pc.printf("%i",Xorder);*/}
-        else if (incomming_message_type == 'Y') {Yorder = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == 'A') {Aorder = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == 'L') {Lspeed = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == 'R') {Rspeed = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == 'T') {Ttwist = incom_data; t_timeout_com.reset();}  //pc.printf("DT11!",incom_data);}
-        else if (incomming_message_type == 'V') {Vtwist = incom_data; t_timeout_com.reset();} //pc.printf("DV55!",incom_data);}
-        else if (incomming_message_type == 'S') {SStatus = true; t_timeout_com.reset();}
-        else if (incomming_message_type == 'U') {UPower = (bool)incom_data;  pc.printf("DO%i!",incom_data); t_timeout_com.reset();}
-        else if (incomming_message_type == 'I') {sendCoeffs();}
-       
-        else if (incomming_message_type == '{') {KpPL = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == '}') {KdPL = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == '^') {KiPL = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == '=') {KiPLS = incom_data; t_timeout_com.reset(); }
-        else if (incomming_message_type == '(') {KpPA = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == ')') {KdPA = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == '_') {KiPA = incom_data; t_timeout_com.reset();}
-        else if (incomming_message_type == '|') {KiPAS = incom_data; t_timeout_com.reset();}
+	switch (incomming_message_type)
+	{
+	case 'X': {Xorder = incom_data; t_timeout_com.reset(); /*myled = !myled; pc.printf("%i",Xorder);*/ break; }
+	case 'Y': {Yorder = incom_data; t_timeout_com.reset(); break; }
+	case 'A': {Aorder = incom_data; t_timeout_com.reset(); break; }
+	case 'L': {Lspeed = incom_data; t_timeout_com.reset(); break; }
+	case 'R': {Rspeed = incom_data; t_timeout_com.reset(); break; }
+	case 'T': {Ttwist = incom_data; t_timeout_com.reset(); break; }  //pc.printf("DT11!",incom_data);}
+	case 'V': {Vtwist = incom_data; t_timeout_com.reset(); break; } //pc.printf("DV55!",incom_data);}
+	case '{': {KpPL = incom_data; t_timeout_com.reset(); break; }
+	case '}': {KdPL = incom_data; t_timeout_com.reset(); break; }
+	case '^': {KiPL = incom_data; t_timeout_com.reset(); break; }
+	case '=': {KiPLS = incom_data; t_timeout_com.reset();  break; }
+	case '(': {KpPA = incom_data; t_timeout_com.reset(); break; }
+	case ')': {KdPA = incom_data; t_timeout_com.reset(); break; }
+	case '_': {KiPA = incom_data; t_timeout_com.reset(); break; }
+	case '|': {KiPAS = incom_data; t_timeout_com.reset(); break; }
+
+	case 'S': {SStatus = true; t_timeout_com.reset(); break; }
+	case 'U': {UPower = (bool)incom_data;  pc.printf("DO%i!", incom_data); t_timeout_com.reset(); break; }
+	case 'I': {sendCoeffs(); break; }
+	}
         
-        
-        //pc.printf("D:dr!");  
+    //pc.printf("D:dr!");  
          
-        incomming_message_type = 0;
-        nbr_incom_char = 0;
-        sign = false;
+    incomming_message_type = 0;
+    nbr_incom_char = 0;
+    sign = false;
            
     return 1;
 }
@@ -182,8 +184,8 @@ void USBSerialCom::sendCoeffs(){
     count ++;
     if (count > 20) {
         pc.printf("D-----!");
-        pc.printf("DKpPA%lf!",getKpPA());
-        pc.printf("DKdPA%lf!",getKdPA());
+        pc.printf("DKpPA%lf!", getKpPA());
+        pc.printf("DKdPA%lf!", getKdPA());
         pc.printf("DKiPA%lf!", getKiPA());
         pc.printf("DKpPL%lf!", getKpPL());
         pc.printf("DKdPL%lf!", getKdPL());
@@ -198,8 +200,8 @@ void USBSerialCom::sendFeedback(long pidL, long pidR, float pidA, float pidT){
     count82 ++;
     if (count82 > 20) 
     {
-        pc.printf("DL%ld!",long(pidL));
-        pc.printf("DR%ld!",long(pidR));
+        pc.printf("DL%ld!", long(pidL));
+        pc.printf("DR%ld!", long(pidR));
         pc.printf("DO%f!", pidA);
         pc.printf("DD%f!", pidT);
          //   pc.printf("DU%i!", getUPower());
