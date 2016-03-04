@@ -83,7 +83,7 @@ int BufferedSerial::printf(const char* format, ...)
 {
     char buffer[this->_buf_size];
     memset(buffer,0,this->_buf_size);
-    int r = 0;
+    unsigned int r = 0;
 
     va_list arg;
     va_start(arg, format);
