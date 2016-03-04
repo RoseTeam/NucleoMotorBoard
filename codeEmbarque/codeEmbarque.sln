@@ -5,6 +5,8 @@ VisualStudioVersion = 14.0.24720.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "carteMoteur", "carteMoteur\carteMoteur.vcxproj", "{1237A297-6122-4BA0-A60F-199166A91C52}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "afficheLED", "afficheLED\afficheLED.vcxproj", "{881EA52A-3B36-4172-B708-96FFCD6CBA34}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,14 @@ Global
 		{1237A297-6122-4BA0-A60F-199166A91C52}.Release|x64.Build.0 = Release|x64
 		{1237A297-6122-4BA0-A60F-199166A91C52}.Release|x86.ActiveCfg = Release|Win32
 		{1237A297-6122-4BA0-A60F-199166A91C52}.Release|x86.Build.0 = Release|Win32
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Debug|x64.ActiveCfg = Debug|x64
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Debug|x64.Build.0 = Debug|x64
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Debug|x86.ActiveCfg = Debug|Win32
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Debug|x86.Build.0 = Debug|Win32
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Release|x64.ActiveCfg = Release|x64
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Release|x64.Build.0 = Release|x64
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Release|x86.ActiveCfg = Release|Win32
+		{881EA52A-3B36-4172-B708-96FFCD6CBA34}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
