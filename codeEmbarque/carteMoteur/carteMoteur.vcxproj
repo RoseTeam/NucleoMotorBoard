@@ -80,9 +80,6 @@
     <Text Include="readme.txt" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\platformio.ini" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="src\Asserv.cpp" />
     <ClCompile Include="src\Buffer.cpp" />
     <ClCompile Include="src\BufferedSerial.cpp" />
@@ -102,6 +99,9 @@
     <ClInclude Include="src\pid.h" />
     <ClInclude Include="src\QEI.h" />
     <ClInclude Include="src\USBSerialCom.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="platformio.ini" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
