@@ -5,7 +5,7 @@
  * This Library is licensed under Copyleft
  
  It handles low level (position and speed) control of Continuous Current Motors 
- and Alpha/Delta control of a dual motot mobile platform
+ and Alpha/Delta control of a dual motor mobile platform
 *********************************************************************************************/
 
 
@@ -42,7 +42,7 @@ MotorCtrl::MotorCtrl(USBSerialCom& _comPC) : ComPC(_comPC),
     commandUUID = 0;
  // variable de position initialisées
           
-    mode_deplacement = 1;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode : polaire)
+    mode_deplacement = 1;// sert à définir le mode de déplacement : polaire, linéaire...(ici 1 seul mode : polaire)
 }
 
 

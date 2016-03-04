@@ -24,7 +24,7 @@ class MotorCtrl;
 
 class USBSerialCom 
 {
-    
+
 public:    
 
     //USBSerialCom(Serial& _pc, MotorCtrl& _asser);  //COnstructor 
@@ -35,6 +35,8 @@ public:
     void setAsser(MotorCtrl * a)
     { asser = a; }
     
+	void write(char const* msg) { pc.printf("%s", msg);}
+
     void printMetrics(); // print data like odometri or metrics
     void printOdo(); // print data like odometri or metrics
     void printRobotStatus();
@@ -106,8 +108,8 @@ protected:
     bool odoEnabled;
     
     BufferedSerial pc;
-   // MotorCtrl& asser;
-   MotorCtrl * asser;
+
+    MotorCtrl * asser;
     
 };
 

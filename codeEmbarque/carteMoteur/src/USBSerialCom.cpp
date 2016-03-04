@@ -7,11 +7,11 @@
 //USBSerialCom::USBSerialCom(Serial& _pc, MotorCtrl& _asser) : pc(_pc), asser(_asser){
 USBSerialCom::USBSerialCom(void) : 
     pc(USBTX, USBRX),
-    asser(0)
+    asser(NULL)
 {
-    // incomming_message_type = 0;     
-     //nbr_incom_char = 0;  
-    UPower = true;        
+    incomming_message_type = 0;
+    nbr_incom_char = 0;
+	UPower = true;
     sign = false;
     
   
@@ -33,15 +33,13 @@ USBSerialCom::USBSerialCom(void) :
     KiPAS = KI_POLAR_ANGLE_SAT;
     
     t_timeout_com.start();
-            
 }
 
 void USBSerialCom::processSerialPort()
-{
-    
+{   
     while(pc.readable()) 
     {           
-        char c = pc.getc();            
+        const char c = pc.getc();            
            //pc.f("%i-",c);
         if (incomming_message_type != 0)   //if it is not the first bit of the packet
         { 
@@ -52,46 +50,67 @@ void USBSerialCom::processSerialPort()
                 {
                     inputString[nbr_incom_char] = c;                    
                     nbr_incom_char++;
-                           
                 }
                 else if(c == '!')   //if the character received is end of the packet
                 {
                     inputString[nbr_incom_char] = c;                    
                     nbr_incom_char++;
-                    interpretData(); 
-                    nbr_incom_char = 0; //pc.printf("\n");   
-                    sign = false;
-                         
+                    if(interpretData()){
+						// one valid message has been received
+						t_timeout_com.reset();
+					}
+					incomming_message_type = 0;
                 }
                 else if (c == 45)
                 { 
                     sign = true;
                 }
-                else                // charachter not recognized, we cancel
+                else // character not recognized, we cancel
                 {
                     incomming_message_type = 0;
-                    nbr_incom_char = 0;
-                    sign = false;                      
                 }                                            
             }
-            else //default , packet overwhelmed
+            else //default, packet overwhelmed
             {
                 pc.printf("Ddef_o!");
-                nbr_incom_char = 0;
                 incomming_message_type = 0;
-                sign = false;
             }
         }
         else //if it is the first bit of the packet, check if it is a standard message
         {
-            if (c == 'X' || c == 'Y' || c == 'A' || c == 'L' || c == 'R' || c == 'T' || c == 'V' || c == 'S' || c == 'U' || c =='I')
-                { incomming_message_type = c;  }
-            else if (c == '{' || c == '}' || c == '^' || c == '=' || c == '(' || c == ')' || c == '_' || c == '|')
-                { incomming_message_type = c; }
-            else 
-                {
-                 //Unknown incomming data   
-                }
+			switch (c)
+			{
+				case 'X':
+				case 'Y':
+				case 'A':
+				case 'L':
+				case 'R':
+				case 'T':
+				case 'V':
+				case 'S':
+				case 'U':
+				case 'I':
+				case '{':
+				case '}':
+				case '^':
+				case '=':
+				case '(':
+				case ')':
+				case '_':
+				case '|':
+				{ 
+					incomming_message_type = c;
+
+					// reset message data at beginning of message
+					nbr_incom_char = 0;
+					sign = false;
+
+					break;
+				}
+				default:
+					//Unknown incomming data   
+					break;
+			}
         }
     }
     
@@ -100,32 +119,32 @@ void USBSerialCom::processSerialPort()
 bool USBSerialCom::checkTimeOut()
 {
     //pc.printf("DO%i!",t_timeout_com.read_ms() );
-    if (t_timeout_com.read_ms() > COM_TIMEOUT  )
+    if (t_timeout_com.read_ms() > COM_TIMEOUT)
     {                 
-           /*Xorder = 0;
-           Yorder = 0; 
-           Aorder = 0; 
-           Lspeed = 0; 
-           Rspeed = 0; 
-           Ttwist = 0.0; 
-           Vtwist = 0.0; 
-           SStatus = 0; 
-           UPower = 1;      */
+        /*Xorder = 0;
+        Yorder = 0; 
+        Aorder = 0; 
+        Lspeed = 0; 
+        Rspeed = 0; 
+        Ttwist = 0.0; 
+        Vtwist = 0.0; 
+        SStatus = 0; 
+        UPower = 1;      */
        
-           return 1;
+        return 1;
     }
-        
-    else { return 0; }
+    else { 
+		return 0; 
+	}
 }
  
 
 //Function to be called when we have received the full packet
 int USBSerialCom::interpretData()
 {    
-    int i = 0;
     long incom_data = 0; 
        
-    while(inputString[i] != '!')                
+	for (int i = 0; inputString[i] != '!'; i++)
     { 
         signed char incom_byte = inputString[i]-48;
             
@@ -137,40 +156,36 @@ int USBSerialCom::interpretData()
         { 
         //default nbr received
         }                
-        i++;
     }
 
-    if(sign) {  incom_data = -incom_data; }
+    if(sign) { incom_data = -incom_data; }
         
 	switch (incomming_message_type)
 	{
-	case 'X': {Xorder = incom_data; t_timeout_com.reset(); /*myled = !myled; pc.printf("%i",Xorder);*/ break; }
-	case 'Y': {Yorder = incom_data; t_timeout_com.reset(); break; }
-	case 'A': {Aorder = incom_data; t_timeout_com.reset(); break; }
-	case 'L': {Lspeed = incom_data; t_timeout_com.reset(); break; }
-	case 'R': {Rspeed = incom_data; t_timeout_com.reset(); break; }
-	case 'T': {Ttwist = incom_data; t_timeout_com.reset(); break; }  //pc.printf("DT11!",incom_data);}
-	case 'V': {Vtwist = incom_data; t_timeout_com.reset(); break; } //pc.printf("DV55!",incom_data);}
-	case '{': {KpPL = incom_data; t_timeout_com.reset(); break; }
-	case '}': {KdPL = incom_data; t_timeout_com.reset(); break; }
-	case '^': {KiPL = incom_data; t_timeout_com.reset(); break; }
-	case '=': {KiPLS = incom_data; t_timeout_com.reset();  break; }
-	case '(': {KpPA = incom_data; t_timeout_com.reset(); break; }
-	case ')': {KdPA = incom_data; t_timeout_com.reset(); break; }
-	case '_': {KiPA = incom_data; t_timeout_com.reset(); break; }
-	case '|': {KiPAS = incom_data; t_timeout_com.reset(); break; }
+	case 'X': {Xorder = incom_data; /*myled = !myled; pc.printf("%i",Xorder);*/ break; }
+	case 'Y': {Yorder = incom_data; break; }
+	case 'A': {Aorder = incom_data; break; }
+	case 'L': {Lspeed = incom_data; break; }
+	case 'R': {Rspeed = incom_data; break; }
+	case 'T': {Ttwist = incom_data; break; }  //pc.printf("DT11!",incom_data);}
+	case 'V': {Vtwist = incom_data; break; } //pc.printf("DV55!",incom_data);}
+	case '{': {KpPL = incom_data; break; }
+	case '}': {KdPL = incom_data; break; }
+	case '^': {KiPL = incom_data; break; }
+	case '=': {KiPLS = incom_data;  break; }
+	case '(': {KpPA = incom_data; break; }
+	case ')': {KdPA = incom_data; break; }
+	case '_': {KiPA = incom_data; break; }
+	case '|': {KiPAS = incom_data; break; }
 
-	case 'S': {SStatus = true; t_timeout_com.reset(); break; }
-	case 'U': {UPower = (bool)incom_data;  pc.printf("DO%i!", incom_data); t_timeout_com.reset(); break; }
+	case 'S': {SStatus = true; break; }
+	case 'U': {UPower = (bool)incom_data;  pc.printf("DO%i!", incom_data); break; }
 	case 'I': {sendCoeffs(); break; }
+	default:
+		return 0;
 	}
         
-    //pc.printf("D:dr!");  
-         
-    incomming_message_type = 0;
-    nbr_incom_char = 0;
-    sign = false;
-           
+    //pc.printf("D:dr!");           
     return 1;
 }
 
@@ -239,8 +254,8 @@ void USBSerialCom::printOdo()
         pc.printf("Y%ld!",long(asser->getODO_Y()*100));
         pc.printf("A%ld!",long(asser->getODO_Theta()*100));
             
-        pc.printf("L%ld!",(int)Vtwist);
-        pc.printf("R%ld!",(int)Ttwist); 
+        pc.printf("L%ld!", Vtwist);
+        pc.printf("R%ld!", Ttwist); 
     }                
     /*if (odoEnabled){
         char buff[64];

@@ -21,12 +21,8 @@ DigitalOut myled(LED1);
 USBSerialCom ComPC;   //handles all the data RX and save them in private variables (coefficient, command setpoint and odom)
 //USBSerialCom ComPC(pc,asser); 
 
-Ticker ticker_motor_ctrl;  //handles the motor control loop frequency
 
 MotorCtrl asser(ComPC);// handles the motor control algorithm (access to ComPc to receive the setpoint commands and send debugs)
-
-
-Timer t_com;
 
 //static int taskSelector = 0; // odometry 1/4   asserv 4/4
 int nbReceivedData = 0;
@@ -38,22 +34,28 @@ void tickerInterrupt()
 
 int main()
 {
-    ticker_motor_ctrl.attach_us(&tickerInterrupt, MOTOR_CTRL_TICKER_PERIOD);
+	Ticker ticker_motor_ctrl;  //handles the motor control loop frequency
+	
+	ticker_motor_ctrl.attach_us(&tickerInterrupt, MOTOR_CTRL_TICKER_PERIOD);
     
     //pc.attach(&ComPC, &USBSerialCom::serialCallback);
     ComPC.setAsser(&asser);
-    t_com.start();
+	Timer t_com;
+	t_com.start();
 
     //TODO: Enable a WatchDog !!!
 
     while (1) 
     {   
         if (t_com.read_ms() > 20)
-        {
+		{
             ComPC.processSerialPort();
             
-            if(ComPC.checkTimeOut())  ComPC.sendHeartBeat(88288);
-            
+			if (ComPC.checkTimeOut())
+			{
+				ComPC.sendHeartBeat(88288);
+			}
+
             //asser.UpdateCmd();
             asser.DataAvailable();
           
@@ -75,4 +77,5 @@ int main()
         }
         
     }
+	return 0;
 }

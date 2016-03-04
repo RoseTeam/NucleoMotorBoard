@@ -5,14 +5,16 @@
 //------------------------------------
 
 Serial pc(SERIAL_TX, SERIAL_RX);
+//USBSerial pc(USBTX, USBRX);
 
 DigitalOut myled(LED1);
+
 int main() {
 	int i = 1;
 	pc.printf("Hello World !\n");
 	while (1) {
-		wait_ms(1000);
-		pc.printf("This program runs since %d seconds.\n", i++);
+		wait_ms(1300);
+		pc.printf("Running since %d seconds.\n", i++);
 		myled = !myled;
 	}
 }
