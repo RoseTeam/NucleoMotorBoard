@@ -1,7 +1,6 @@
 #ifndef MOTOR_CTRL_H
 #define MOTOR_CTRL_H
  
-#include "mbed.h"
 #include "QEI.h"
 #include "SerialCom.h"
 #include "MotorDriver.h"
@@ -30,9 +29,8 @@ class MotorCtrl {
     
 public:    
 
-    //MotorCtrl();  //COnstructor 
-    MotorCtrl(SerialCom& _comPC);  //COnstructor   
-    
+    MotorCtrl();  //COnstructor
+
     PID PidAngle;
     PID PidDistance;
     float pidAngleOutput;
@@ -74,8 +72,8 @@ public:
     Asserv angleCommand;
 
     
-    Buffer <int> angle_buf;
-    Buffer <int> distance_buf;
+    Buffer <uint32_t> angle_buf;
+    Buffer <uint32_t> distance_buf;
 //private:  
 
     bool isEnabled;

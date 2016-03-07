@@ -2,14 +2,16 @@
 #include "SerialParser.h"
 #include "mbed.h"
 
-#define DEUXPI 6.28318530718
-#define PI 3.14159265359
+#define PI2 6.283185307179586
+#define PI 3.141592653589793
 
-MotorCtrl::MotorCtrl(SerialCom& _ComPC) 
-wheelL(Encoder1_A, Encoder1_B, NC, ENCODER_RES),wheelR(Encoder2_A, Encoder2_B, NC, ENCODER_RES), 
-PidAngle(&angle, &pidAngleOutput, &angleCommand.target,KP_POLAR_ANGLE, KI_POLAR_ANGLE, KD_POLAR_ANGLE,-1),
-PidDistance(&distance, &pidDistanceOutput, &distanceCommand.target,KP_POLAR_LINEAR, KI_POLAR_LINEAR, KD_POLAR_LINEAR,-1),
-angle_buf(4), distance_buf(4)
+MotorCtrl::MotorCtrl() :
+    wheelL(Encoder1_A, Encoder1_B, NC, ENCODER_RES),
+    wheelR(Encoder2_A, Encoder2_B, NC, ENCODER_RES),
+    PidAngle(&angle, &pidAngleOutput, &angleCommand.target,KP_POLAR_ANGLE, KI_POLAR_ANGLE, KD_POLAR_ANGLE,-1),
+    PidDistance(&distance, &pidDistanceOutput, &distanceCommand.target,KP_POLAR_LINEAR, KI_POLAR_LINEAR, KD_POLAR_LINEAR,-1),
+    angle_buf(4),
+    distance_buf(4)
 
 {
     ODO_X = 0;
@@ -18,17 +20,17 @@ angle_buf(4), distance_buf(4)
     ODO_Theta_Offset = 0.0;
     ODO_khi = 0.0;
     ODO_ds= 0.0;
-    tickToDistance = (3.14159*R_WHEEL/ENCODER_RES)*54.4/100;
+    tickToDistance = (PI*R_WHEEL/ENCODER_RES)*54.4/100;
     
-    tickToAngle =  3.14159*R_WHEEL/(WHEEL_B * ENCODER_RES)* 6.28328530718/5.569498538970947;
+    tickToAngle =  PI*R_WHEEL/(WHEEL_B * ENCODER_RES) * PI2 /5.569498538970947;
     
     distanceCommand.SetStepPerMeter(1.0/tickToDistance);
     angleCommand.SetStepPerMeter(1.0/tickToAngle);
     
     isEnabled = 0;
     commandUUID = 0;
- // variable de position initialisées
-          
+    // variable de position initialisées
+
     mode_deplacement = 1;// sert à déffinir le mode de déplacement : polaire, linèaire...(ici 1 seul mode)
     
 }
@@ -46,7 +48,7 @@ void MotorCtrl::ComputeOdometry()
     ODO_Theta = (tickToAngle * angle) + ODO_Theta_Offset; //  mesure la rotation en radian
     
     ODO_DELTA_X = trueDeltaDistance  * cos(ODO_Theta);
-    ODO_DELTA_Y = trueDeltaDistance* sin(ODO_Theta);  
+    ODO_DELTA_Y = trueDeltaDistance* sin(ODO_Theta);
 
     ODO_X = ODO_X + ODO_DELTA_X;
     ODO_Y = ODO_Y + ODO_DELTA_Y;
@@ -68,7 +70,7 @@ void MotorCtrl::setAngle(float Theta){
 void MotorCtrl::setTarget(float distance, float angle, float finalDistanceSpeed, float finalAngleSpeed, int uuid){
     commandUUID = uuid;
     distanceCommand.setTarget(distance,finalDistanceSpeed);
-    angleCommand.setTarget(angle,finalAngleSpeed); 
+    angleCommand.setTarget(angle,finalAngleSpeed);
 }
 
 void MotorCtrl::setTargetAngle(float angleAbs, int uuid){
@@ -105,8 +107,8 @@ void MotorCtrl::setTargetXY(float x, float y, float finalDistanceSpeed, int mode
         distanceCommand.setTarget(dist, finalDistanceSpeed);
     }
     if (mode & 0x1){
-       angleCommand.setTarget(angle,0);
-    }  
+        angleCommand.setTarget(angle,0);
+    }
 }
 
 void MotorCtrl::setTickToAngle(float pTickToAngle){
@@ -122,11 +124,11 @@ void MotorCtrl::setTickToDistance(float pTickToDistance){
 void MotorCtrl::enable(int is_enabled){
     isEnabled = is_enabled;
     
-        distanceCommand.Reset(distance); // reset speed trajectory generator
-        angleCommand.Reset(angle);
+    distanceCommand.Reset(distance); // reset speed trajectory generator
+    angleCommand.Reset(angle);
     
 }
-  
+
 void MotorCtrl::SystemCtrl(){    
     
     PidDistance.Compute();
@@ -157,22 +159,24 @@ void MotorCtrl::Interrupt_Handler()
 
 bool MotorCtrl::DataAvailable(){
     if (distance_buf.available()){
-       distance = distance_buf;
-       angle = angle_buf;
-       return true;
+        distance = distance_buf;
+        angle = angle_buf;
+        return true;
     }
     return false;
 }
 
 void MotorCtrl::Compute()
 {
- // compute target
-    distanceCommand.Compute();
-    angleCommand.Compute();
-    distanceCommand.blockageDetector(distance);
-    angleCommand.blockageDetector(angle);
-                                          
-    SystemCtrl();
+    // compute target
+//    distanceCommand.Compute();
+//    angleCommand.Compute();
+//    distanceCommand.blockageDetector(distance);
+//    angleCommand.blockageDetector(angle);
+//    SystemCtrl();
+
+    // TODO : Call Lucas Skywalker !
+
 }
 
 double MotorCtrl::getODO_X(){
@@ -212,6 +216,6 @@ long MotorCtrl::getWheelR()
 
 void MotorCtrl::Debug(){
     
-      //ComPC.sendFeedback(ODO_X,ODO_X,pidA,pidT);
-        
+    //ComPC.sendFeedback(ODO_X,ODO_X,pidA,pidT);
+
 }

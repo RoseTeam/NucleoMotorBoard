@@ -228,7 +228,7 @@ private:
 
     Encoding encoding_;
 
-    InterruptIn channelA_;
+    InterruptIn     channelA_;
     InterruptIn channelB_;
     InterruptIn index_;
 

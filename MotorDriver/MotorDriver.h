@@ -1,8 +1,7 @@
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
- 
-#include "mbed.h"
 
+#include "mbed.h"
 
 #define MOTOR_1VIT PB_10
 #define MOTOR_1DIR PA_8

@@ -50,7 +50,10 @@ int main()
 
     int count = 0;
     while (1) {
+
+        // Check if there is new encoder data
         if (asser.DataAvailable()) {
+            //
             asser.Compute();
              ++taskSelector;
             if ((taskSelector & 0x3) == 0x2) { // if xxxxxxx10

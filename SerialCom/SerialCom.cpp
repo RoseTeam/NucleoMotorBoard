@@ -6,6 +6,13 @@ SerialCom::SerialCom(PinName tx, PinName rx) : BufferedSerial(tx, rx){
     message_available = 0;
 }
 
+
+/*!
+  Method to read a buffer of chars
+  The input message should end with '\n'
+  Message can be compiled during several passes
+
+*/
 char* SerialCom::getMessage(){
     if (message_available == 1) return message_buffer;
     while(readable())

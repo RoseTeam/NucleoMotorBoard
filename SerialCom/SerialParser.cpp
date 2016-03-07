@@ -292,7 +292,7 @@ bool SerialParser::interpretData(){
     goto end_parse;
             
 scanf_error:
-    debug_print("error scanf\n");       
+    debug_print("error scanf\n");
 end_parse:
     releaseMessage();
     return true;
