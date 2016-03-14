@@ -7,8 +7,6 @@
 #define MOTOR_CTRL_TICKER_PERIOD 4000
 #define TICKER_MAX_DURATION 2000
 
-DigitalOut myled(LED1);
-
 //MotorDriver motors(MOTOR_1VIT,MOTOR_1DIR,MOTOR_2VIT,MOTOR_2DIR);
 //Metrics metrics;
 //SerialParser ComPC(SERIAL_TX, SERIAL_RX, asser, metrics);   //handles all the data RX and save them in private variables (coefficient and command ctrl)
@@ -34,6 +32,8 @@ void tickerInterrupt()
 
 int main()
 {
+	DigitalOut myled(LED1);
+
 	Ticker ticker_motor_ctrl;  //handles the motor control loop frequency
 	
 	ticker_motor_ctrl.attach_us(&tickerInterrupt, MOTOR_CTRL_TICKER_PERIOD);
@@ -47,32 +47,26 @@ int main()
 
     while (1) 
     {   
-        if (t_com.read_ms() > 20)
+        if (t_com.read_ms() > 100)
 		{
+			myled = !myled;
+
             ComPC.processSerialPort();
             
 			if (ComPC.checkTimeOut())
 			{
-				ComPC.sendHeartBeat(88288);
+				ComPC.pc.printf("Drien recu %ds!", COM_TIMEOUT);
+				ComPC.resetTimeOut();
 			}
 
             //asser.UpdateCmd();
             asser.DataAvailable();
           
             asser.ComputeOdometry();
-            asser.Compute();
+            asser.SystemCtrl();
             
-            /*pc.printf("X%ld!",long(asser.getODO_X()*100));
-            pc.printf("Y%ld!",long(asser.getODO_Y()*100));
-            pc.printf("A%ld!",long(asser.getODO_Theta()*100));
-            
-            pc.printf("L%ld!",asser.getWheelL());
-            pc.printf("R%ld!",asser.getWheelR()); 
-            
-            if (count > 0) { pc.printf("D:To!"); }
-            count = 0;*/
             ComPC.printOdo();
-               
+
             t_com.reset();        
         }
         

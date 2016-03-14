@@ -64,9 +64,11 @@ public:
     void sendCoeffs();
     
     bool checkTimeOut();
-    
+	void resetTimeOut() { t_timeout_com.reset(); }
+
  //   MotorCtrl asser2; 
-    
+	BufferedSerial pc;
+
 protected:
   
     
@@ -75,7 +77,7 @@ protected:
     Timer t_timeout_com;
     
     char inputString[NBR_CHAR_NAV];
-    char incomming_message_type;
+    char incoming_message_type;
     unsigned char nbr_incom_char;
     long incom_data; 
         
@@ -107,8 +109,6 @@ protected:
     bool metricsEnabled;
     bool odoEnabled;
     
-    BufferedSerial pc;
-
     MotorCtrl * asser;
     
 };

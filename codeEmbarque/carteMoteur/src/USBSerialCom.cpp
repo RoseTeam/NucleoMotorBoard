@@ -9,7 +9,7 @@ USBSerialCom::USBSerialCom(void) :
     pc(USBTX, USBRX),
     asser(NULL)
 {
-    incomming_message_type = 0;
+    incoming_message_type = 0;
     nbr_incom_char = 0;
 	UPower = true;
     sign = false;
@@ -20,7 +20,7 @@ USBSerialCom::USBSerialCom(void) :
 // Hyperterminal configuration
 // 460800 bauds, 8-bit data, no parity
 //------------------------------------
-    pc.baud(460800);
+    pc.baud(115200);
     
     KpPL = KP_POLAR_LINEAR;
     KdPL = KD_POLAR_LINEAR;
@@ -37,16 +37,17 @@ USBSerialCom::USBSerialCom(void) :
 
 void USBSerialCom::processSerialPort()
 {   
-    while(pc.readable()) 
+	while(pc.readable())
     {           
         const char c = pc.getc();            
            //pc.f("%i-",c);
-        if (incomming_message_type != 0)   //if it is not the first bit of the packet
+
+        if (incoming_message_type != 0)   //if it is not the first bit of the packet
         { 
        // pc.printf("D%c!",c);
             if (nbr_incom_char < NBR_CHAR_NAV)
             {                           
-                if(c>= 47 &&  c < 58) // if the character received is a number                    
+                if(c >= 47 &&  c < 58) // if the character received is a number                    
                 {
                     inputString[nbr_incom_char] = c;                    
                     nbr_incom_char++;
@@ -58,8 +59,9 @@ void USBSerialCom::processSerialPort()
                     if(interpretData()){
 						// one valid message has been received
 						t_timeout_com.reset();
+						pc.printf("Dmsg recu_%s!", inputString);
 					}
-					incomming_message_type = 0;
+					incoming_message_type = 0;
                 }
                 else if (c == 45)
                 { 
@@ -67,13 +69,13 @@ void USBSerialCom::processSerialPort()
                 }
                 else // character not recognized, we cancel
                 {
-                    incomming_message_type = 0;
+                    incoming_message_type = 0;
                 }                                            
             }
             else //default, packet overwhelmed
             {
                 pc.printf("Ddef_o!");
-                incomming_message_type = 0;
+                incoming_message_type = 0;
             }
         }
         else //if it is the first bit of the packet, check if it is a standard message
@@ -99,7 +101,7 @@ void USBSerialCom::processSerialPort()
 				case '_':
 				case '|':
 				{ 
-					incomming_message_type = c;
+					incoming_message_type = c;
 
 					// reset message data at beginning of message
 					nbr_incom_char = 0;
@@ -160,7 +162,7 @@ int USBSerialCom::interpretData()
 
     if(sign) { incom_data = -incom_data; }
         
-	switch (incomming_message_type)
+	switch (incoming_message_type)
 	{
 	case 'X': {Xorder = incom_data; /*myled = !myled; pc.printf("%i",Xorder);*/ break; }
 	case 'Y': {Yorder = incom_data; break; }
@@ -179,9 +181,10 @@ int USBSerialCom::interpretData()
 	case '|': {KiPAS = incom_data; break; }
 
 	case 'S': {SStatus = true; break; }
-	case 'U': {UPower = (bool)incom_data;  pc.printf("DO%i!", incom_data); break; }
+	case 'U': {UPower = (bool)incom_data;  pc.printf("DU%i!", incom_data); break; }
 	case 'I': {sendCoeffs(); break; }
 	default:
+		pc.printf("D:unknown message type %s!", incoming_message_type);           
 		return 0;
 	}
         
@@ -249,7 +252,10 @@ void USBSerialCom::printMetrics(){
 void USBSerialCom::printOdo()
 {   
     if (asser) 
-    {        //pc.printf("Yr");
+    {   
+		//pc.printf("Yr");
+		//pc.printf("D:printodo!");
+
         pc.printf("X%ld!",long(asser->getODO_X()*100));
         pc.printf("Y%ld!",long(asser->getODO_Y()*100));
         pc.printf("A%ld!",long(asser->getODO_Theta()*100));

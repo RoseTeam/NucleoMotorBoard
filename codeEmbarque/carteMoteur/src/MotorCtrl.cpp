@@ -142,32 +142,6 @@ void MotorCtrl::enable(bool is_enabled){
 	angleCommand.Reset(angle);
 }
   
-/*
-void MotorCtrl::SystemCtrl(){    
-    
-    PidDistance.Compute();
-    PidAngle.Compute();
-    
-    float setpointAspeed =  ComPC.getTtwist()/100.0;
-    float setpointLspeed =  ComPC.getVtwist()/100.0;
-    
-    
-    float motorL = pidDistanceOutput + pidAngleOutput;
-    float motorR = pidDistanceOutput - pidAngleOutput;
-    
-    ComPC.sendHeartBeat(motorL);
-    
-    if(isEnabled){
-        Motors.Motor1(motorL);
-        Motors.Motor2(motorR);
-    }
-    else {
-        Motors.Motor1(0);
-        Motors.Motor2(0);
-    }
-}
-*/
-
 void MotorCtrl::SystemCtrl(){    
 
     float setpointAspeed = ComPC.getTtwist() / 10000.0;
