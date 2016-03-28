@@ -1,4 +1,15 @@
-# CommandMot
+# NucleoMotorBoard
+
+**Repo description**
+
+This repo contains Motor command working code for nucleo.
+
+A embedded repo is also available in the robot (ubilinux-2 Edison board), available without internet connectivity.
+Here's the cmd to link the embedded repo
+> git remote add robot git@192.168.2.12:/home/git/repogit/NucleoMotorBoard.git
+> git fetch robot
+
+**Use this project with Visual Studio**
 
 Pour l'édition du code de la carte moteur via Visual Studio :
 
