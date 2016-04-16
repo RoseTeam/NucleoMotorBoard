@@ -74,14 +74,12 @@ rgb_lcd lcd;
 #define HOMEDISPLAYMODE 0x01
 #define DEBUGDISPLAYMODE 0x02
 #define SERIALDISPLAYMODE 0x03
+#define CONFIGDISPLAYMODE 0x04
+#define IODISPLAYMODE 0x05
 uint8_t displayMode = 0x00;
 
-// #define SETTUPPLE(val1, val2) ((uint16_t)val1 << 8 | (uint16_t)val2 )
-// #define GETTUPPLE1(val) ((uint8_t)((val&0xFF00) >> 8))
-// #define GETTUPPLE2(val) ((uint8_t)(val&0x00FF))
-
 // TODO a watchdog...
-void(* resetFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
+void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
 
 void setup() {
     // put your setup code here, to run once:
@@ -115,7 +113,7 @@ void setup() {
         lcd.setCursor(0, 1);
         lcd.write("Serial failure  ");
         delay(5000);
-        resetFunc();
+        haltFunc();
     }
     delay(500);
     Serial.println("Ready");
@@ -156,6 +154,48 @@ void debugDisplayLayout() {
     }
 }
 
+void configDisplayLayout() {
+    uint8_t index = 0;
+
+    if(!configMode) {ioDisplayLayout(); return;}
+
+    if (displayMode != CONFIGDISPLAYMODE) {
+        // clear the display
+        lcd.clear();
+        lcd.write("ConfigIO: ");
+        displayMode = CONFIGDISPLAYMODE;
+    }
+    for (index=0; index<6; index++) {
+        if (index==AINNUM) {break;}
+        lcd.setCursor(10+index, 0);
+        if (AINAssignation[index] == AINMODE) { lcd.print("A"); }
+        else { lcd.print("U"); }
+    }
+    for(index=0; index<16; index++) {
+        if (index==IONUM) {break;}
+        lcd.setCursor(index, 1);
+        switch(IOAssignation[index]) {
+            case INMODE: lcd.print("I"); break;
+            case OUTMODE: lcd.print("O"); break;
+            case PWMMODE: lcd.print("P"); break;
+            case SERVOMODE: lcd.print("D"); break;
+            case UNUSEDPIN: lcd.print("U"); break;
+            default: lcd.print("-");
+        }
+    }
+}
+
+void ioDisplayLayout() {
+    if(configMode) {configDisplayLayout(); return;}
+
+    if (displayMode != IODISPLAYMODE) {
+        // clear the display
+        lcd.clear();
+        lcd.write("IO State: ");
+        displayMode = IODISPLAYMODE;
+    }
+}
+
 void serialDisplayLayout() {
     if (displayMode != SERIALDISPLAYMODE) {
         // clear the display
@@ -190,6 +230,8 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
         case HOMEDISPLAYMODE: homeDisplayLayout(); break;
         case DEBUGDISPLAYMODE: debugDisplayLayout(); break;
         case SERIALDISPLAYMODE: serialDisplayLayout(); break;
+        case CONFIGDISPLAYMODE: configDisplayLayout(); break;
+        case IODISPLAYMODE: ioDisplayLayout(); break;
         default: break;
     }
 }
@@ -336,7 +378,7 @@ short checkPin (const uint8_t pin, const uint8_t* const table, const unsigned sh
 void setIn(const uint8_t pin, const uint8_t threshold) {
     short index = checkPinAndUpdate(pin, IOList, IONUM, IOAssignation, threshold?(INMODE|INTHRESHOLD):INMODE);
     if (index < 0) {
-        index = checkPinAndUpdate(pin, AINList, AINNUM, AINAssignation, threshold?(AINMODE|INTHRESHOLD):AINMODE);
+        index = checkPinAndUpdate(pin-IONUM, AINList, AINNUM, AINAssignation, threshold?(AINMODE|INTHRESHOLD):AINMODE);
         // pin error already processed by checkPinAndUpdate function
         if (index >= 0 && threshold) {
             AINThreshold[index] = threshold;
@@ -386,7 +428,7 @@ void setConfig(const uint8_t pin) {
             ;   // reset stats
             break;
         case 0x15:
-            resetFunc();   // reset board
+            haltFunc();   // reset / halt board
             break;
         default:
             ;
@@ -412,7 +454,8 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
             else {appendErrorBuff(W_UKNOWNPARAMETER, data, dataLen);}
             break;
         case CONFIGMSG:
-            ;
+            if (dataLen == 0) {processConfig(pin);}
+            else {appendErrorBuff(W_UKNOWNPARAMETER, data, dataLen);}
             break;
         default :
             appendErrorBuff(W_UKNOWNCOMMAND, &command, 1);
@@ -448,7 +491,7 @@ void processIn (const uint8_t pin, const bool allPins) {
             }
         }
         else {
-            index = checkPinAndMode(pin, AINList, AINNUM, AINAssignation, AINMODE);
+            index = checkPinAndMode(pin-IONUM, AINList, AINNUM, AINAssignation, AINMODE);
             if (index >=0) {
                 readVal = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
                 sendToSerial(&readVal, 1);
@@ -462,7 +505,7 @@ void processOut (const uint8_t pin, const bool state, const bool allPins) {
     short index = 0;
     if (allPins) {
         for (index=0; index<IONUM; index++) {
-            if (IOList[index] == OUTMODE) {
+            if (IOAssignation[index] == OUTMODE) {
                 digitalWrite((unsigned short)IOList[index], state);
             }
         }
@@ -532,13 +575,18 @@ void processConfig(const uint8_t pin) {
 
 void loop() {
     // put your main code here, to run repeatedly:
+    uint8_t dataLen = 0;
 
     if (Serial.available()) {
-        if(getIncomingSerial()) {
+        dataLen = getIncomingSerial();
+        if(dataLen) {
             sendAck();
+            processMessage(RxBuff[0], RxBuff+1, dataLen-1);
         }
     }
-    refreshDisplay(SERIALDISPLAYMODE);
+    if (displayMode==0x00) {refreshDisplay(IODISPLAYMODE);}
+    else {refreshDisplay();}
+
 #ifdef LEDSTATUSINDEX
     digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], statusLedToggle);
     statusLedToggle = !statusLedToggle;
