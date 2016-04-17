@@ -6,10 +6,11 @@
 #include "rgb_lcd.h"
 
 
-// define capabilities
+// define board capabilities
 #define IONUM 14
 #define AINNUM 6
 #define PWMNUM 4
+// define board ressources & assignations
 bool configMode = false;
 const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
 uint16_t IOState = 0;
@@ -19,7 +20,7 @@ const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09};
 Servo servoList[PWMNUM];
 #define LEDSTATUSINDEX 13
 
-// define supported pin uses
+// define flags for supported pin uses
 #define UNUSEDPIN   0b00000000
 #define INMODE      0b00000001
 #define AINMODE     0b00000010
@@ -27,12 +28,13 @@ Servo servoList[PWMNUM];
 #define OUTMODE     0b00001000
 #define PWMMODE     0b00010000
 #define SERVOMODE   0b00100000
+// define containers for assignations
 uint8_t IOAssignation[IONUM] = {0};
 uint8_t AINAssignation[AINNUM] = {0};
 uint8_t AINThreshold[AINNUM] = {0};
 uint16_t minMaxServo[PWMNUM] = {0};
 
-// define action messages
+// define action messages mask and values
 #define ACTIONMASK 0xE0
 #define PINMASK    0x1F
 #define INMSG      0x00
@@ -43,11 +45,13 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define I2CMSG     0xA0
 #define UARTMSG    0xC0
 #define CONFIGMSG  ACTIONMASK
+
+// define Serial parameters
 #define USEFULLFRAMELEN 16
 #define RXBUFFLEN USEFULLFRAMELEN
 #define TXBUFFLEN USEFULLFRAMELEN
 #define ERRORBUFFLEN 1000
-
+// define Serial stats & registers
 unsigned short RxStat = 0;
 unsigned short RxErr = 0;
 unsigned short TxStat = 0;
@@ -58,7 +62,7 @@ uint8_t* errorBuff = (uint8_t*)calloc(ERRORBUFFLEN, sizeof(uint8_t));
 unsigned short errBuffLen = 0;
 unsigned short errBuffIndex = 0;
 
-// define error message
+// define error messages
 #define E_CRCFAIL         0x01
 #define I_MSGID           0x02
 #define E_HEADERLENGTH    0x03
@@ -71,6 +75,7 @@ unsigned short errBuffIndex = 0;
 #define E_SERVOINIT       0x24
 #define W_WRONGSERVOPARAM 0x25
 
+// define LCD parameters
 rgb_lcd lcd;
 #define HOMEDISPLAYMODE 0x01
 #define DEBUGDISPLAYMODE 0x02
@@ -79,6 +84,7 @@ rgb_lcd lcd;
 #define IODISPLAYMODE 0x05
 uint8_t displayMode = 0x00;
 
+// define main parameters
 #define LOOPPERIOD 100      //ms
 unsigned long nextLoopTime = 0;
 uint8_t loopCounter = 0;
@@ -204,7 +210,7 @@ void ioDisplayLayout(void) {
     for (index=0; index<6; index++) {
         if (index==AINNUM) {break;}
         lcd.setCursor(10+index, 0);
-        if (AINAssignation[index]&AINMODE) { lcd.print((char)(AINState[index]>>2)+0x30); }
+        if (AINAssignation[index]&AINMODE) { lcd.print((char)((AINState[index]>>2)+0x30)); }
         else { lcd.print("-"); }
     }
     for(index=0; index<16; index++) {
@@ -293,7 +299,7 @@ uint8_t getIncomingSerial(void) {
 }
 
 void sendAck(void) {
-    uint8_t headerFrame[3] = {0x00, lastMsgID, 0x00};
+    uint8_t headerFrame[3] = {0x05, lastMsgID, 0xE6};
     Serial.write(headerFrame, 3);
 }
 
@@ -598,37 +604,41 @@ void processConfig(const uint8_t pin) {
 
 void refreshInputs(void) {
     uint8_t index = 0;
-    for(index=0; index>IONUM; index++) {
-        if (IOAssignation[index]&INMODE) {
-            if (digitalRead(IOList[index])) {IOState |= (1<<index);}
-            else {IOState &= ~(1<<index);}
+    if (!configMode) {
+        for(index=0; index<IONUM; index++) {
+            if (IOAssignation[index]&INMODE) {
+                if (digitalRead(IOList[index])) {IOState |= (1<<index);}
+                else {IOState &= ~(1<<index);}
+            }
         }
-    }
-    for (index=0; index<AINNUM; index++) {
-        if (AINAssignation[index]&AINMODE) {
-            AINState[index] = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+        for (index=0; index<AINNUM; index++) {
+            if (AINAssignation[index]&AINMODE) {
+                AINState[index] = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+            }
         }
-    }
+   }
 }
 
 bool monitorThreshold(void) {
     bool res = false;
     uint8_t index = 0;
     uint8_t readVal = 0;
-    for(index=0; index>IONUM; index++) {
-        if ((IOAssignation[index]&(INMODE|INTHRESHOLD)) == (INMODE|INTHRESHOLD)) {
-            if (((uint8_t)digitalRead(IOList[index])) != (IOState&(1<<index))) {
-                processIn(IOList[index], false);
-                res=true;
+    if (!configMode) {
+        for(index=0; index>IONUM; index++) {
+            if ((IOAssignation[index]&(INMODE|INTHRESHOLD)) == (INMODE|INTHRESHOLD)) {
+                if (((uint8_t)digitalRead(IOList[index])) != (IOState&(1<<index))) {
+                    processIn(IOList[index], false);
+                    res=true;
+                }
             }
         }
-    }
-    for (index=0; index<AINNUM; index++) {
-        if ((AINAssignation[index]&(AINMODE|INTHRESHOLD)) == (AINMODE|INTHRESHOLD)) {
-            readVal = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
-            if ((AINState[index]<AINThreshold[index]) == (readVal>=AINThreshold[index])) {
-                processIn(AINList[index], false);
-                res = true;
+        for (index=0; index<AINNUM; index++) {
+            if ((AINAssignation[index]&(AINMODE|INTHRESHOLD)) == (AINMODE|INTHRESHOLD)) {
+                readVal = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+                if ((AINState[index]<AINThreshold[index]) == (readVal>=AINThreshold[index])) {
+                    processIn(AINList[index], false);
+                    res = true;
+                }
             }
         }
     }
