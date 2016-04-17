@@ -12,10 +12,12 @@
 #define PWMNUM 4
 bool configMode = false;
 const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
+uint16_t IOState = 0;
 const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
+uint8_t AINState[AINNUM] = {0};
 const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09};
 Servo servoList[PWMNUM];
-// #define LEDSTATUSINDEX 13
+#define LEDSTATUSINDEX 13
 
 // define supported pin uses
 #define UNUSEDPIN   0b00000000
@@ -69,7 +71,6 @@ unsigned short errBuffIndex = 0;
 #define E_SERVOINIT       0x24
 #define W_WRONGSERVOPARAM 0x25
 
-bool statusLedToggle = 0;
 rgb_lcd lcd;
 #define HOMEDISPLAYMODE 0x01
 #define DEBUGDISPLAYMODE 0x02
@@ -78,10 +79,14 @@ rgb_lcd lcd;
 #define IODISPLAYMODE 0x05
 uint8_t displayMode = 0x00;
 
+#define LOOPPERIOD 100      //ms
+unsigned long nextLoopTime = 0;
+uint8_t loopCounter = 0;
+
 // TODO a watchdog...
 void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
 
-void setup() {
+void setup(void) {
     // put your setup code here, to run once:
 
     // set pin for LED status
@@ -120,7 +125,7 @@ void setup() {
     delay(500);
 }
 
-String formatIntStrLen (const unsigned short val, const uint8_t outlen, uint8_t maxlen = 0) {
+String formatIntStrLen(const unsigned short val, const uint8_t outlen, uint8_t maxlen = 0) {
     String ret = String(val);
     uint8_t currentLen = 0;
     if (maxlen == 0) {maxlen = outlen;}
@@ -137,13 +142,13 @@ String formatIntStrLen (const unsigned short val, const uint8_t outlen, uint8_t 
     return ret;
 }
 
-short findIndex (const uint8_t searchVal, const uint8_t* table, const unsigned short tableLen) {
+short findIndex(const uint8_t searchVal, const uint8_t* table, const unsigned short tableLen) {
     short index = 0;
     while ( index < (short)tableLen && table[index] != searchVal ) index++;
     return ( index == (short)tableLen ? -1 : index );
 }
 
-void debugDisplayLayout() {
+void debugDisplayLayout(void) {
     if (displayMode != DEBUGDISPLAYMODE) {
         // clear the display
         lcd.clear();
@@ -154,7 +159,7 @@ void debugDisplayLayout() {
     }
 }
 
-void configDisplayLayout() {
+void configDisplayLayout(void) {
     uint8_t index = 0;
 
     if(!configMode) {ioDisplayLayout(); return;}
@@ -168,7 +173,7 @@ void configDisplayLayout() {
     for (index=0; index<6; index++) {
         if (index==AINNUM) {break;}
         lcd.setCursor(10+index, 0);
-        if (AINAssignation[index] == AINMODE) { lcd.print("A"); }
+        if (AINAssignation[index]&AINMODE) { lcd.print("A"); }
         else { lcd.print("U"); }
     }
     for(index=0; index<16; index++) {
@@ -185,7 +190,9 @@ void configDisplayLayout() {
     }
 }
 
-void ioDisplayLayout() {
+void ioDisplayLayout(void) {
+    uint8_t index = 0;
+
     if(configMode) {configDisplayLayout(); return;}
 
     if (displayMode != IODISPLAYMODE) {
@@ -194,9 +201,25 @@ void ioDisplayLayout() {
         lcd.write("IO State: ");
         displayMode = IODISPLAYMODE;
     }
+    for (index=0; index<6; index++) {
+        if (index==AINNUM) {break;}
+        lcd.setCursor(10+index, 0);
+        if (AINAssignation[index]&AINMODE) { lcd.print((char)(AINState[index]>>2)+0x30); }
+        else { lcd.print("-"); }
+    }
+    for(index=0; index<16; index++) {
+        if (index==IONUM) {break;}
+        lcd.setCursor(index, 1);
+        if(IOAssignation[index]&(INMODE|OUTMODE)) {
+            lcd.print(IOState&(1<<index)?"1":"0");
+        }
+        else {
+            lcd.print("-");
+        }
+    }
 }
 
-void serialDisplayLayout() {
+void serialDisplayLayout(void) {
     if (displayMode != SERIALDISPLAYMODE) {
         // clear the display
         lcd.clear();
@@ -215,7 +238,7 @@ void serialDisplayLayout() {
     lcd.print(formatIntStrLen(RxErr,3));
 }
 
-void homeDisplayLayout() {
+void homeDisplayLayout(void) {
     // clear the display
     lcd.clear();
 
@@ -236,7 +259,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
     }
 }
 
-uint8_t getIncomingSerial() {
+uint8_t getIncomingSerial(void) {
     uint8_t headerFrame[3] = {0x00,0x00,0x00};
     uint8_t payloadLen = 0;
     uint8_t crc = 0x00;
@@ -269,7 +292,7 @@ uint8_t getIncomingSerial() {
     return payloadLen+1;
 }
 
-void sendAck() {
+void sendAck(void) {
     uint8_t headerFrame[3] = {0x00, lastMsgID, 0x00};
     Serial.write(headerFrame, 3);
 }
@@ -286,7 +309,7 @@ void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
     return;
 }
 
-uint8_t genCrc (const uint8_t* const data, uint8_t dataLen) {
+uint8_t genCrc(const uint8_t* const data, uint8_t dataLen) {
     uint8_t crc = 0x00;
     for (uint8_t i=0; i<dataLen; i++) {
         crc += data[i];
@@ -352,7 +375,7 @@ void processConfigMessage(const uint8_t command, const uint8_t pin, const uint8_
     return;
 }
 
-short checkPinAndUpdate (const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, uint8_t* const assignationList, const uint8_t pinUsage) {
+short checkPinAndUpdate(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, uint8_t* const assignationList, const uint8_t pinUsage) {
     short index = checkPin(pin, table, tableLen);
     if (index >= 0) {
         if (assignationList[index]) { appendErrorBuff(W_PINALREADYUSED, &pin, 1); }
@@ -361,7 +384,7 @@ short checkPinAndUpdate (const uint8_t pin, const uint8_t* const table, const un
     return index;
 }
 
-short checkPinAndMode (const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, const uint8_t* const assignationList, const uint8_t pinUsage) {
+short checkPinAndMode(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, const uint8_t* const assignationList, const uint8_t pinUsage) {
     short index = checkPin(pin, table, tableLen);
     if (index >= 0) {
         if ((assignationList[index]&pinUsage) != pinUsage) { index = -1; }
@@ -369,7 +392,7 @@ short checkPinAndMode (const uint8_t pin, const uint8_t* const table, const unsi
     return index;
 }
 
-short checkPin (const uint8_t pin, const uint8_t* const table, const unsigned short tableLen) {
+short checkPin(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen) {
     short index = findIndex(pin, table, tableLen);
     if (index < 0) { appendErrorBuff(E_UKNOWNPIN, &pin, 1); }
     return index;
@@ -463,7 +486,7 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
     return;
 }
 
-void processIn (const uint8_t pin, const bool allPins) {
+void processIn(const uint8_t pin, const bool allPins) {
     uint8_t buffLen = 0x00;
     uint8_t readVal = 0x00;
     short index = 0;
@@ -501,11 +524,11 @@ void processIn (const uint8_t pin, const bool allPins) {
     return;
 }
 
-void processOut (const uint8_t pin, const bool state, const bool allPins) {
+void processOut(const uint8_t pin, const bool state, const bool allPins) {
     short index = 0;
     if (allPins) {
         for (index=0; index<IONUM; index++) {
-            if (IOAssignation[index] == OUTMODE) {
+            if (IOAssignation[index]&OUTMODE) {
                 digitalWrite((unsigned short)IOList[index], state);
             }
         }
@@ -519,7 +542,7 @@ void processOut (const uint8_t pin, const bool state, const bool allPins) {
     return;
 }
 
-void processServo (const uint8_t pin, const bool enable, const uint8_t pos) {
+void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
     unsigned short minPulseWidth=0, maxPulseWidth=0;
     short index = findIndex(pin, PWMList, PWMNUM);
     if (index < 0) {
@@ -573,9 +596,51 @@ void processConfig(const uint8_t pin) {
     return;
 }
 
+void refreshInputs(void) {
+    uint8_t index = 0;
+    for(index=0; index>IONUM; index++) {
+        if (IOAssignation[index]&INMODE) {
+            if (digitalRead(IOList[index])) {IOState |= (1<<index);}
+            else {IOState &= ~(1<<index);}
+        }
+    }
+    for (index=0; index<AINNUM; index++) {
+        if (AINAssignation[index]&AINMODE) {
+            AINState[index] = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+        }
+    }
+}
+
+bool monitorThreshold(void) {
+    bool res = false;
+    uint8_t index = 0;
+    uint8_t readVal = 0;
+    for(index=0; index>IONUM; index++) {
+        if ((IOAssignation[index]&(INMODE|INTHRESHOLD)) == (INMODE|INTHRESHOLD)) {
+            if (((uint8_t)digitalRead(IOList[index])) != (IOState&(1<<index))) {
+                processIn(IOList[index], false);
+                res=true;
+            }
+        }
+    }
+    for (index=0; index<AINNUM; index++) {
+        if ((AINAssignation[index]&(AINMODE|INTHRESHOLD)) == (AINMODE|INTHRESHOLD)) {
+            readVal = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+            if ((AINState[index]<AINThreshold[index]) == (readVal>=AINThreshold[index])) {
+                processIn(AINList[index], false);
+                res = true;
+            }
+        }
+    }
+    return res;
+}
+
 void loop() {
     // put your main code here, to run repeatedly:
     uint8_t dataLen = 0;
+
+    // loop refreshes @ 10Hz
+    refreshInputs();
 
     if (Serial.available()) {
         dataLen = getIncomingSerial();
@@ -584,13 +649,22 @@ void loop() {
             processMessage(RxBuff[0], RxBuff+1, dataLen-1);
         }
     }
-    if (displayMode==0x00) {refreshDisplay(IODISPLAYMODE);}
-    else {refreshDisplay();}
 
+    if ((loopCounter&0x03) == 0x00) {   //2.5Hz refresh
+        if (displayMode == 0x00) {refreshDisplay(IODISPLAYMODE);}
+        else {refreshDisplay();}
 #ifdef LEDSTATUSINDEX
-    digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], statusLedToggle);
-    statusLedToggle = !statusLedToggle;
+        digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], loopCounter&0x04);
 #endif
-    delay(100);
+    }
+
+    while(nextLoopTime > millis()) {
+        // do monitoring and break the loop if necessary
+        if (monitorThreshold()) {break;}    // do checking @ max frequency
+    }
+    nextLoopTime = millis() + LOOPPERIOD;
+    if (loopCounter == 0x07) {loopCounter = 0x00;}
+    else {loopCounter++;}
+
 
 }
