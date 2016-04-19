@@ -12,12 +12,15 @@
 #define PWMNUM 4
 // define board ressources & assignations
 bool configMode = false;
+bool ackEnabled = true;
+bool warnErr    = false;
 const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
 uint16_t IOState = 0;
 const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
 uint8_t AINState[AINNUM] = {0};
 const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09};
 Servo servoList[PWMNUM];
+#define UIBUTTONINDEX  8
 #define LEDSTATUSINDEX 13
 
 // define flags for supported pin uses
@@ -46,6 +49,16 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define UARTMSG    0xC0
 #define CONFIGMSG  ACTIONMASK
 
+// define system msg (all are masked by CONFIGMSG)
+#define SYSRETRIEVEERR 0x00
+#define SYSACKTGL      0x01
+#define SYSWARNERRTGL  0x02
+#define SYSCONFENTER   0x05
+#define SYSCONFEXIT    0x0A
+#define SYSRSTSTATS    0x0F
+#define SYSHALT        0x14
+#define SYSREBOOT      0x15
+
 // define Serial parameters
 #define USEFULLFRAMELEN 16
 #define RXBUFFLEN USEFULLFRAMELEN
@@ -64,24 +77,25 @@ unsigned short errBuffIndex = 0;
 
 // define error messages
 #define E_CRCFAIL         0x01
-#define I_MSGID           0x02
-#define E_HEADERLENGTH    0x03
-#define E_PAYLOADLENGTH   0x04
+#define E_HEADERLENGTH    0x02
+#define E_PAYLOADLENGTH   0x03
 #define W_UKNOWNCOMMAND   0x11
 #define W_UKNOWNPARAMETER 0x12
-#define E_UKNOWNPIN       0x21
+#define E_UKNOWNPIN       0x13
 #define W_PINALREADYUSED  0x22
 #define W_LEDSTATUSUSED   0x23
-#define E_SERVOINIT       0x24
-#define W_WRONGSERVOPARAM 0x25
+#define W_UIBUTTONUSED    0x24
+#define E_SERVOINIT       0x25
+#define W_WRONGSERVOPARAM 0x26
 
 // define LCD parameters
 rgb_lcd lcd;
-#define HOMEDISPLAYMODE 0x01
-#define DEBUGDISPLAYMODE 0x02
+#define DISPLAYMODENUM    0x05
+#define HOMEDISPLAYMODE   0x01
+#define DEBUGDISPLAYMODE  0x02
 #define SERIALDISPLAYMODE 0x03
 #define CONFIGDISPLAYMODE 0x04
-#define IODISPLAYMODE 0x05
+#define IODISPLAYMODE     DISPLAYMODENUM
 uint8_t displayMode = 0x00;
 
 // define main parameters
@@ -92,15 +106,19 @@ uint8_t loopCounter = 0;
 // TODO a watchdog...
 void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
 
-void setup(void) {
+void setup (void) {
     // put your setup code here, to run once:
 
     // set pin for LED status
-    #ifdef LEDSTATUSINDEX
+#ifdef LEDSTATUSINDEX
     IOAssignation[LEDSTATUSINDEX] = OUTMODE;
     pinMode((unsigned short)IOList[LEDSTATUSINDEX], OUTPUT);
     digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], HIGH);
-    #endif
+#endif
+#ifdef UIBUTTONINDEX
+    IOAssignation[UIBUTTONINDEX] = INMODE;
+    pinMode((unsigned short)IOList[UIBUTTONINDEX], INPUT);
+#endif
 
     // set up the LCD's number of columns and rows:
     lcd.begin(16, 2);
@@ -131,6 +149,17 @@ void setup(void) {
     delay(500);
 }
 
+void teardone (void) {
+    releaseAllServos();
+    processOut(0, false, true);
+    lcd.clear();
+    lcd.setRGB(255, 0, 0);
+    lcd.setCursor(0, 0);
+    lcd.write("Match finished");
+    lcd.setCursor(0, 1);
+    lcd.write("System halted");
+}
+
 String formatIntStrLen(const unsigned short val, const uint8_t outlen, uint8_t maxlen = 0) {
     String ret = String(val);
     uint8_t currentLen = 0;
@@ -155,13 +184,27 @@ short findIndex(const uint8_t searchVal, const uint8_t* table, const unsigned sh
 }
 
 void debugDisplayLayout(void) {
+    char tmp[2];
+    uint8_t index = 0;
+    uint8_t fromIndex = 0;
     if (displayMode != DEBUGDISPLAYMODE) {
         // clear the display
         lcd.clear();
         lcd.write("Debug data:");
-        lcd.setCursor(0, 1);
-        lcd.write(" ");
         displayMode = DEBUGDISPLAYMODE;
+    }
+        lcd.setCursor(0, 1);
+    if (errBuffIndex>8) {fromIndex = errBuffIndex-8;}
+    for (index=fromIndex; index<errBuffIndex; index++) {
+        if (index+1<errBuffIndex && errorBuff[index]==0x0D && errorBuff[index+1]==0x0A) {
+            // end of the current displayed msg error. Insert space
+            lcd.print("    ");
+            index++;
+        }
+        else {
+            sprintf(tmp, "%.2x", errorBuff[index]);
+            lcd.print(tmp);
+        }
     }
 }
 
@@ -245,16 +288,26 @@ void serialDisplayLayout(void) {
 }
 
 void homeDisplayLayout(void) {
-    // clear the display
-    lcd.clear();
-
-    lcd.write("Welcome         ");
-    lcd.setCursor(0, 1);
-    lcd.write("                ");
+    if (displayMode != HOMEDISPLAYMODE) {
+        // clear the display
+        lcd.clear();
+        lcd.write(" Hi! I'm GobGob");
+        lcd.setCursor(0, 1);
+        lcd.write(" Toulouse Robot");
+        displayMode = HOMEDISPLAYMODE;
+    }
 }
 
 void refreshDisplay(uint8_t switchDisplay = 0x00) {
-    if (!switchDisplay) {switchDisplay = displayMode;}
+    if (!switchDisplay) {
+        switchDisplay = displayMode;
+#ifdef UIBUTTONINDEX
+        if (digitalRead(IOList[UIBUTTONINDEX])) {
+            if (displayMode == DISPLAYMODENUM) {switchDisplay = 0x01;}
+            else {switchDisplay++;}
+        }
+#endif
+    }
     switch(switchDisplay) {
         case HOMEDISPLAYMODE: homeDisplayLayout(); break;
         case DEBUGDISPLAYMODE: debugDisplayLayout(); break;
@@ -288,7 +341,7 @@ uint8_t getIncomingSerial(void) {
         RxErr++;
         return 0x00;
     }
-    if (genCrc(RxBuff, payloadLen+1) != crc) {
+    if (genCS(RxBuff, payloadLen+1) != crc) {
         RxErr++;
         appendErrorBuff(E_CRCFAIL, RxBuff+1, payloadLen);
         return 0x00;
@@ -298,8 +351,9 @@ uint8_t getIncomingSerial(void) {
     return payloadLen+1;
 }
 
-void sendAck(void) {
-    uint8_t headerFrame[3] = {0x05, lastMsgID, 0xE6};
+void sendAck(bool state = true) {
+    uint8_t headerFrame[3] = {0x04, lastMsgID, 0xE6};
+    if (!state) { headerFrame[2] = 0xE7; }
     Serial.write(headerFrame, 3);
 }
 
@@ -307,7 +361,7 @@ void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
     uint8_t frameLen = 0;
     for (unsigned short i = 0; i < buffLen; i += 16) {
         frameLen = min(16,buffLen-i);
-        Serial.write(((frameLen-1) << 4) | genCrc(buffPtr+i, frameLen));
+        Serial.write(((frameLen-1) << 4) | genCS(buffPtr+i, frameLen));
         Serial.write(lastMsgID);
         Serial.write(buffPtr+i, frameLen);
     }
@@ -315,15 +369,20 @@ void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
     return;
 }
 
-uint8_t genCrc(const uint8_t* const data, uint8_t dataLen) {
-    uint8_t crc = 0x00;
+uint8_t genCS(const uint8_t* const data, uint8_t dataLen) {
+    uint8_t cs = 0x00;
+    // do a 8bits checksum (overflow is ignored by uint8_t type)
     for (uint8_t i=0; i<dataLen; i++) {
-        crc += data[i];
+        cs += data[i];
     }
-    return crc & 0x0F;
+    // transform checksum to a 4bits checksum by doing another 4bits checksum
+    cs = ((cs&0xF0)>>4)+(cs&0x0F);
+    return cs&0x0F;     //overflow is ignored by mask
 }
 
 void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInfo, uint8_t infoLen) {
+    // warn the host about the error
+    sendAck(false);
     if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {errBuffIndex=0;} //recycle the error buffer
     errorBuff[errBuffIndex] = errorCode;
     errBuffIndex++;
@@ -347,6 +406,12 @@ void processMessage(const uint8_t action, const uint8_t* const data, const uint8
 #ifdef LEDSTATUSINDEX
     if (pin == IOList[LEDSTATUSINDEX] && command != CONFIGMSG) {
         appendErrorBuff(W_LEDSTATUSUSED, &action, 1);
+        return;
+    }
+#endif
+#ifdef UIBUTTONINDEX
+    if (pin == IOList[UIBUTTONINDEX] && command != CONFIGMSG) {
+        appendErrorBuff(W_UIBUTTONUSED, &action, 1);
         return;
     }
 #endif
@@ -447,17 +512,27 @@ void setServo(const uint8_t pin, const uint8_t minPos, const uint8_t maxPos) {
 
 void setConfig(const uint8_t pin) {
     switch(pin) {
-        case 0x00:
+        case SYSRETRIEVEERR:
             ;   // retrieve error buffer
             break;
-        case 0x0A:
+        case SYSACKTGL:
+            ackEnabled = ~ackEnabled;
+            break;
+        case SYSWARNERRTGL:
+            warnErr = ~warnErr;
+            break;
+        case SYSCONFEXIT:
             configMode = false;   // exit config mode
             break;
-        case 0x0F:
+        case SYSRSTSTATS:
             ;   // reset stats
             break;
-        case 0x15:
-            haltFunc();   // reset / halt board
+        case SYSREBOOT:
+            ;   // reset board
+            break;
+        case SYSHALT:
+            teardone();
+            haltFunc();   // halt board
             break;
         default:
             ;
@@ -587,12 +662,19 @@ void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
     return;
 }
 
+void releaseAllServos (void) {
+    for (uint8_t index=0; index<PWMNUM; index++) {
+        processServo(PWMList[index], false, 0);
+    }
+    return;
+}
+
 void processConfig(const uint8_t pin) {
     switch(pin) {
-        case 0x00:
+        case SYSRETRIEVEERR:
             ;   // retrieve error buffer
             break;
-        case 0x05:
+        case SYSCONFENTER:
             configMode = true;   // enter in config mode
             break;
         default:
@@ -661,7 +743,7 @@ void loop() {
     }
 
     if ((loopCounter&0x03) == 0x00) {   //2.5Hz refresh
-        if (displayMode == 0x00) {refreshDisplay(IODISPLAYMODE);}
+        if (displayMode == 0x00) {refreshDisplay(HOMEDISPLAYMODE);}
         else {refreshDisplay();}
 #ifdef LEDSTATUSINDEX
         digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], loopCounter&0x04);
