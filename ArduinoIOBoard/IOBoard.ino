@@ -54,6 +54,8 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define SYSACKTGL      0x01
 #define SYSWARNERRTGL  0x02
 #define SYSCONFENTER   0x05
+#define SYSACKOK       0x06
+#define SYSACKKO       0x07
 #define SYSCONFEXIT    0x0A
 #define SYSRSTSTATS    0x0F
 #define SYSHALT        0x14
@@ -63,7 +65,7 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define USEFULLFRAMELEN 16
 #define RXBUFFLEN USEFULLFRAMELEN
 #define TXBUFFLEN USEFULLFRAMELEN
-#define ERRORBUFFLEN 1000
+#define ERRORBUFFLEN 30
 // define Serial stats & registers
 unsigned short RxStat = 0;
 unsigned short RxErr = 0;
@@ -92,7 +94,7 @@ unsigned short errBuffIndex = 0;
 rgb_lcd lcd;
 #define DISPLAYMODENUM    0x05
 #define HOMEDISPLAYMODE   0x01
-#define DEBUGDISPLAYMODE  0x02
+#define ERRORDISPLAYMODE  0x02
 #define SERIALDISPLAYMODE 0x03
 #define CONFIGDISPLAYMODE 0x04
 #define IODISPLAYMODE     DISPLAYMODENUM
@@ -183,27 +185,71 @@ short findIndex(const uint8_t searchVal, const uint8_t* table, const unsigned sh
     return ( index == (short)tableLen ? -1 : index );
 }
 
-void debugDisplayLayout(void) {
+void errorDisplayLayout(void) {
     char tmp[2];
-    uint8_t index = 0;
+    uint8_t index = errBuffIndex;
     uint8_t fromIndex = 0;
-    if (displayMode != DEBUGDISPLAYMODE) {
+    uint8_t len = 0;
+    if (displayMode != ERRORDISPLAYMODE) {
         // clear the display
         lcd.clear();
         lcd.write("Debug data:");
-        displayMode = DEBUGDISPLAYMODE;
+        displayMode = ERRORDISPLAYMODE;
     }
-        lcd.setCursor(0, 1);
-    if (errBuffIndex>8) {fromIndex = errBuffIndex-8;}
-    for (index=fromIndex; index<errBuffIndex; index++) {
-        if (index+1<errBuffIndex && errorBuff[index]==0x0D && errorBuff[index+1]==0x0A) {
-            // end of the current displayed msg error. Insert space
-            lcd.print("    ");
-            index++;
+    lcd.setCursor(0, 1);
+    if (errBuffLen == 0) {
+        lcd.write("  Buffer empty  ");
+    }
+    else {
+        index--;
+
+        while(true) {   // parse the errorBuff to find whole msgs which can be displayed on lcd display.
+
+            if (index>0 && errorBuff[index-1]==0x0D && errorBuff[index]==0x0A) {
+                // end of error msg detected (a msg ends by CRLF, 0x0D 0x0A).
+                fromIndex = index+1;    // save start index of following message.
+                index--;    // 2 bytes was processed instead of 1, decrement index one more time.
+                len++;
+            }
+            else {
+                len += 2;  // nothing has broken the loop, so count this char (which will use 2 chars, when displayed in hex)...
+            }
+
+            // before exiting loop: check if the current byte is the msg start, by check the 2 previous bytes (CRLF)
+            if (len>=16) {   // Display allows 16 chars.
+                if (index>1 && errorBuff[index-2]==0x0D && errorBuff[index-1]==0x0A) {fromIndex = index;}
+                break; // exiting case: 16 bytes was processed
+            }
+
+            // updating index.
+            if (index == 0) {
+                if(errBuffLen != errBuffIndex){index = errBuffLen - 1;}     // that's mean error buffer was recycled, so count from the end of buffer
+                else {
+                    fromIndex = 0;
+                    break;  // exiting case: whole error buffer was processed or is empty.
+                }
+            }
+            else { index--; }
+
         }
-        else {
-            sprintf(tmp, "%.2x", errorBuff[index]);
-            lcd.print(tmp);
+
+        index = fromIndex;
+        len = 0;
+
+        // All error msg end by CRLF, which is replaced by a space.
+        while(len<(16-1) && index!=errBuffIndex) { // we need at least 2 chars available on display
+            if (index >= errBuffLen) {index = 0;}
+            if (index+1<errBuffLen && errorBuff[index]==0x0D && errorBuff[index+1]==0x0A) {
+                lcd.print(" ");
+                len++;
+                index += 2;
+            }
+            else {
+                sprintf(tmp, "%.2x", errorBuff[index]);
+                lcd.print(tmp);
+                len += 2;
+                index++;
+            }
         }
     }
 }
@@ -310,7 +356,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
     }
     switch(switchDisplay) {
         case HOMEDISPLAYMODE: homeDisplayLayout(); break;
-        case DEBUGDISPLAYMODE: debugDisplayLayout(); break;
+        case ERRORDISPLAYMODE: errorDisplayLayout(); break;
         case SERIALDISPLAYMODE: serialDisplayLayout(); break;
         case CONFIGDISPLAYMODE: configDisplayLayout(); break;
         case IODISPLAYMODE: ioDisplayLayout(); break;
@@ -343,7 +389,7 @@ uint8_t getIncomingSerial(void) {
     }
     if (genCS(RxBuff, payloadLen+1) != crc) {
         RxErr++;
-        appendErrorBuff(E_CRCFAIL, RxBuff+1, payloadLen);
+        appendErrorBuff(E_CRCFAIL, RxBuff, payloadLen+1);
         return 0x00;
     }
 
@@ -352,8 +398,8 @@ uint8_t getIncomingSerial(void) {
 }
 
 void sendAck(bool state = true) {
-    uint8_t headerFrame[3] = {0x04, lastMsgID, 0xE6};
-    if (!state) { headerFrame[2] = 0xE7; }
+    uint8_t headerFrame[3] = {0x04, lastMsgID, CONFIGMSG|SYSACKOK};
+    if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
     Serial.write(headerFrame, 3);
 }
 
@@ -383,7 +429,10 @@ uint8_t genCS(const uint8_t* const data, uint8_t dataLen) {
 void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInfo, uint8_t infoLen) {
     // warn the host about the error
     sendAck(false);
-    if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {errBuffIndex=0;} //recycle the error buffer
+    if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {
+        errBuffLen = errBuffIndex;
+        errBuffIndex = 0; //recycle the error buffer
+    }
     errorBuff[errBuffIndex] = errorCode;
     errBuffIndex++;
     errorBuff[errBuffIndex] = lastMsgID;
