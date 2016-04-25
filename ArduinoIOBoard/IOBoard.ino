@@ -49,7 +49,11 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define UARTMSG    0xC0
 #define CONFIGMSG  ACTIONMASK
 
-// define system msg (all are masked by CONFIGMSG)
+// define I2C pin mapping reuse (all are masked by I2CMSG)
+#define I2CLCDMSG   0x00
+#define I2CLCDCOLOR 0x01
+
+// define system pin mapping reuse (all are masked by CONFIGMSG)
 #define SYSRETRIEVEERR 0x00
 #define SYSACKTGL      0x01
 #define SYSWARNERRTGL  0x02
@@ -81,6 +85,7 @@ unsigned short errBuffIndex = 0;
 #define E_CRCFAIL         0x01
 #define E_HEADERLENGTH    0x02
 #define E_PAYLOADLENGTH   0x03
+#define I_LOOPLOAD        0x04
 #define W_UKNOWNCOMMAND   0x11
 #define W_UKNOWNPARAMETER 0x12
 #define E_UKNOWNPIN       0x13
@@ -92,18 +97,21 @@ unsigned short errBuffIndex = 0;
 
 // define LCD parameters
 rgb_lcd lcd;
-#define DISPLAYMODENUM    0x05
+#define DISPLAYMODENUM    0x06
 #define HOMEDISPLAYMODE   0x01
-#define ERRORDISPLAYMODE  0x02
-#define SERIALDISPLAYMODE 0x03
-#define CONFIGDISPLAYMODE 0x04
+#define HOSTDISPLAYMODE   0x02
+#define ERRORDISPLAYMODE  0x03
+#define SERIALDISPLAYMODE 0x04
+#define CONFIGDISPLAYMODE 0x05
 #define IODISPLAYMODE     DISPLAYMODENUM
 uint8_t displayMode = 0x00;
+uint8_t* LCDBuff = (uint8_t*)calloc(16, sizeof(uint8_t));
 
 // define main parameters
-#define LOOPPERIOD 100      //ms
+#define LOOPPERIOD 50      //ms
 unsigned long nextLoopTime = 0;
 uint8_t loopCounter = 0;
+uint8_t loopTime = 0;
 
 // TODO a watchdog...
 void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
@@ -278,7 +286,7 @@ void configDisplayLayout(void) {
             case INMODE: lcd.print("I"); break;
             case OUTMODE: lcd.print("O"); break;
             case PWMMODE: lcd.print("P"); break;
-            case SERVOMODE: lcd.print("D"); break;
+            case SERVOMODE: lcd.print("S"); break;
             case UNUSEDPIN: lcd.print("U"); break;
             default: lcd.print("-");
         }
@@ -307,6 +315,9 @@ void ioDisplayLayout(void) {
         lcd.setCursor(index, 1);
         if(IOAssignation[index]&(INMODE|OUTMODE)) {
             lcd.print(IOState&(1<<index)?"1":"0");
+        }
+        else if(IOAssignation[index] != UNUSEDPIN) {
+            lcd.print("X");
         }
         else {
             lcd.print("-");
@@ -344,6 +355,17 @@ void homeDisplayLayout(void) {
     }
 }
 
+void hostDisplayLayout(void) {
+    if (displayMode != HOSTDISPLAYMODE) {
+        // clear the display
+        lcd.clear();
+        lcd.write(" Host message:");
+        displayMode = HOSTDISPLAYMODE;
+    }
+    lcd.setCursor(0, 1);
+    lcd.print((char*)LCDBuff);
+}
+
 void refreshDisplay(uint8_t switchDisplay = 0x00) {
     if (!switchDisplay) {
         switchDisplay = displayMode;
@@ -356,6 +378,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
     }
     switch(switchDisplay) {
         case HOMEDISPLAYMODE: homeDisplayLayout(); break;
+        case HOSTDISPLAYMODE: hostDisplayLayout(); break;
         case ERRORDISPLAYMODE: errorDisplayLayout(); break;
         case SERIALDISPLAYMODE: serialDisplayLayout(); break;
         case CONFIGDISPLAYMODE: configDisplayLayout(); break;
@@ -398,8 +421,9 @@ uint8_t getIncomingSerial(void) {
 }
 
 void sendAck(bool state = true) {
-    uint8_t headerFrame[3] = {0x04, lastMsgID, CONFIGMSG|SYSACKOK};
+    uint8_t headerFrame[3] = {0x00, lastMsgID, CONFIGMSG|SYSACKOK};
     if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
+    headerFrame[0] = genCS(headerFrame+2, 1);
     Serial.write(headerFrame, 3);
 }
 
@@ -519,16 +543,22 @@ short checkPin(const uint8_t pin, const uint8_t* const table, const unsigned sho
 }
 
 void setIn(const uint8_t pin, const uint8_t threshold) {
-    short index = checkPinAndUpdate(pin, IOList, IONUM, IOAssignation, threshold?(INMODE|INTHRESHOLD):INMODE);
-    if (index < 0) {
-        index = checkPinAndUpdate(pin-IONUM, AINList, AINNUM, AINAssignation, threshold?(AINMODE|INTHRESHOLD):AINMODE);
+    short index = 0;
+    if (pin < IONUM) {
+        index = checkPinAndUpdate(pin, IOList, IONUM, IOAssignation, threshold?(INMODE|INTHRESHOLD):INMODE);
         // pin error already processed by checkPinAndUpdate function
-        if (index >= 0 && threshold) {
-            AINThreshold[index] = threshold;
+        if (index >= 0) {
+            // pinMode((unsigned short)IOList[index], INPUT);
+            pinMode((unsigned short)IOList[index], INPUT_PULLUP);
         }
     }
     else {
-        pinMode((unsigned short)IOList[index], INPUT);
+        index = checkPinAndUpdate(pin-IONUM, AINList, AINNUM, AINAssignation, threshold?(AINMODE|INTHRESHOLD):AINMODE);
+        // pin error already processed by checkPinAndUpdate function
+        // Nothing to do to configure AIN pins
+        if (index >= 0 && threshold) {
+            AINThreshold[index] = threshold;
+        }
     }
     return;
 }
@@ -605,6 +635,11 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
             if (dataLen == 0) {processServo(pin, false, 0);}
             else if (dataLen == 1)  {processServo(pin, true, data[0]);}
             else {appendErrorBuff(W_UKNOWNPARAMETER, data, dataLen);}
+            break;
+        case I2CMSG:
+            if (pin==I2CLCDCOLOR && dataLen==3) {processLCDColor(data);}
+            else if (pin==I2CLCDMSG && dataLen!=0) {processLCDmsg(data, dataLen);}
+            else {appendErrorBuff(W_UKNOWNPARAMETER, 0, 0);}
             break;
         case CONFIGMSG:
             if (dataLen == 0) {processConfig(pin);}
@@ -711,6 +746,19 @@ void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
     return;
 }
 
+void processLCDmsg (const uint8_t* const msg, const uint8_t dataLen) {
+    uint8_t index = dataLen;
+    strncpy((char*)LCDBuff, (char*)msg, dataLen);
+    while (index<16) {
+        LCDBuff[index] = 0x20;  // space character
+        index++;
+    }
+}
+
+void processLCDColor (const uint8_t* const colorFrame) {
+    lcd.setRGB(colorFrame[0], colorFrame[1], colorFrame[2]);
+}
+
 void releaseAllServos (void) {
     for (uint8_t index=0; index<PWMNUM; index++) {
         processServo(PWMList[index], false, 0);
@@ -791,21 +839,23 @@ void loop() {
         }
     }
 
-    if ((loopCounter&0x03) == 0x00) {   //2.5Hz refresh
+    if ((loopCounter&0x07) == 0x00) {   //2.5Hz refresh
         if (displayMode == 0x00) {refreshDisplay(HOMEDISPLAYMODE);}
         else {refreshDisplay();}
 #ifdef LEDSTATUSINDEX
-        digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], loopCounter&0x04);
+        digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], loopCounter&0x08);
 #endif
     }
+
+    // loopTime = (nextLoopTime - millis());
+    // appendErrorBuff(I_LOOPLOAD, &loopTime, 1);
 
     while(nextLoopTime > millis()) {
         // do monitoring and break the loop if necessary
         if (monitorThreshold()) {break;}    // do checking @ max frequency
     }
     nextLoopTime = millis() + LOOPPERIOD;
-    if (loopCounter == 0x07) {loopCounter = 0x00;}
+    if (loopCounter == 0x0F) {loopCounter = 0x00;}
     else {loopCounter++;}
-
 
 }

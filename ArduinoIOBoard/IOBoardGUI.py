@@ -8,14 +8,20 @@ Local versions
 
 '''
 VERSION='0'
+# import re
 import os
 import time
+# import socket
 import serial
 import logging
-from Tkinter import *
 import sys
-import getopt
-
+# import subprocess
+# from threading import Thread, Event, Lock
+# from Queue import Queue, Empty
+# ON_POSIX = 'posix' in sys.builtin_module_names
+if __name__ == "__main__":
+    from Tkinter import *
+    import getopt
 
 DEBUG_ENABLED = False
 ONLY_DEBUG_LOGS = True
@@ -41,7 +47,11 @@ I2CMSG     = 0xA0
 UARTMSG    = 0xC0
 CONFIGMSG  = ACTIONMASK
 
-# define system msg (all are masked by CONFIGMSG)
+# define I2C pin mapping reuse (all are masked by I2CMSG)
+I2CLCDMSG    = 0x00
+I2CLCDCOLOR  = 0x01
+
+# define system pin mapping reuse (all are masked by CONFIGMSG)
 SYSRETRIEVEERR = 0x00
 SYSACKTGL      = 0x01
 SYSWARNERRTGL  = 0x02
@@ -259,11 +269,11 @@ class IOBoardComm:
         self._serialPortHandle.setKeepPortAlive()
         status &= self._serialPortHandle.openSerialPort()
         time.sleep(2)
-        if status:
-            res = self._serialPortHandle.recvCmd(7)
-            status &= res != None
-        if status:
-            status &= ("Ready" in res)
+        # if status:
+            # res = self._serialPortHandle.recvCmd(7)
+            # status &= res != None
+        # if status:
+            # status &= ("Ready" in res)
         if (status):
             logger.info("IOBoard booted")
             if (self._serialPortHandle.getRxPendingBytes()):
@@ -389,6 +399,20 @@ class IOBoardComm:
             status = self._sendIOMsg(chr(OUTMSG+pinNumber)+chr((1 if state else 0)+(240 if allPins else 0)))
         return status
 
+    def writeLCD(self, msg):
+        '''
+        '''
+        if (self._isReady):
+            status = self._sendIOMsg(chr(I2CMSG+I2CLCDMSG)+msg)
+        return status
+
+    def setLCDColor(self, red, green, blue):
+        '''
+        '''
+        if (self._isReady):
+            status = self._sendIOMsg(chr(I2CMSG+I2CLCDCOLOR)+chr(red%256)+chr(green%256)+chr(blue%256))
+        return status
+
     def setServoPos(self, pinNumber, pos):
         '''
         '''
@@ -456,6 +480,26 @@ class mainControl:
         Load and parse IOBoard parameters
         '''
         logger.debug("Working path: {}".format(os.getcwd()))
+        # # with open(confFile) as config_file:
+            # # for line in config_file:
+                # # if line.startswith("#"): continue
+                # # line_arg = line.split(";")
+                # # # # # do with regular expression:
+                # # # # # matchPattern = ".*Bench_Config_{0}(_(?P<DUT>.*))?.xml".format(socket.gethostname())
+                # # # # # matchVariant = re.match(matchPattern, str)
+                # # # # # if matchVariant is None:
+                    # # # # # logger.warning("string not well formatted")
+                # # # # # else:
+                    # # # # # self.settings["DUT"] = matchVariant.group("DUT")
+                # # if line_arg is None or 2 > len(line_arg): continue
+                # # optionalArg = None
+                # # port = line_arg[0].split("\n")[0]
+                # # ioMode = line_arg[1].split("\n")[0]
+                # # if ioMode == "SERVO":
+                    # # minValue = line_arg[2].split("\n")[0].split("[")[1].split("]")[0].split(":")[0]
+                    # # maxValue = line_arg[2].split("\n")[0].split("[")[1].split("]")[0].split(":")[1]
+                    # # optionalArg = [minValue,maxValue]
+                # # self.settings[port] = [ioMode, optionalArg] if optionalArg is not None else [ioMode]
         self.settings["serialPort"] = "COM12"
         self.settings["serialBitrate"] = 115200
         logger.debug("self.settings = {}".format(self.settings))
@@ -525,6 +569,9 @@ if __name__ == "__main__":
     programOpt = mainControl.parseGetOpt(sys.argv[1:])
     mainHandle = mainControl()
     mainHandle.setIOPurposes()
+    # mainHandle._IOBoardHandle.writeLCD("Host: "+sys.platform)
+    mainHandle._IOBoardHandle.writeLCD("Battery 13.24V")
+    mainHandle._IOBoardHandle.setLCDColor(0,128,0)
     i = 0
     while(i<10):
         time.sleep(1)
@@ -533,8 +580,25 @@ if __name__ == "__main__":
         mainHandle.getINstates()
         i += 1
     mainHandle.setAllOff()
+    mainHandle._IOBoardHandle.writeLCD("Battery 11.89V")
+    mainHandle._IOBoardHandle.setLCDColor(128,32,0)
 
 
+    # mainHandle.tkHandle.title("IO Board Control v{}".format(VERSION))
+    # #mainHandle.tkHandle.configure(background='blue')
+
+    # # Common controls
+    # frameControl = Frame(mainHandle.tkHandle)
+    # frameControl.pack(side = RIGHT, padx = 5)
+    # buttonQuit = Button(frameControl, text="Quit", command=mainHandle.tkHandle.quit, width=12, bg="orange")
+    # buttonQuit.pack(anchor="n")
+
+    # # # if programOpt["port"] != "":
+        # # # if programOpt["port"] in list():
+            # # # if programOpt["enabled"] == True:
+                # # # # enabled cooling on starting
+                # # # logger.info("--------enabled---------")
+    # mainHandle.tkHandle.mainloop()
 
 '''
 Notes
