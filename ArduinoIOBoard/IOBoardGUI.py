@@ -8,7 +8,6 @@ Local versions
 
 '''
 VERSION='0'
-# import re
 import os
 import time
 import serial
@@ -27,6 +26,34 @@ steamHandle.setLevel(logging.DEBUG) if DEBUG_ENABLED or ONLY_DEBUG_LOGS else ste
 steamHandle.setFormatter(logging.Formatter('%(levelname)8s :: %(message)s'))
 logger.addHandler(steamHandle)
 logger.info('IOBoardGUI script v%s', VERSION)
+
+FRAMEDELAYSEC = 0.01
+
+# define action messages mask and values
+ACTIONMASK = 0xE0
+PINMASK    = 0x1F
+INMSG      = 0x00
+OUTMSG     = 0x20
+SERVOMSG   = 0x40
+PWMMSG     = 0x60
+AX12MSG    = 0x80
+I2CMSG     = 0xA0
+UARTMSG    = 0xC0
+CONFIGMSG  = ACTIONMASK
+
+# define system msg (all are masked by CONFIGMSG)
+SYSRETRIEVEERR = 0x00
+SYSACKTGL      = 0x01
+SYSWARNERRTGL  = 0x02
+SYSCONFENTER   = 0x05
+SYSACKOK       = 0x06
+SYSACKKO       = 0x07
+SYSCONFEXIT    = 0x0A
+SYSRSTSTATS    = 0x0F
+SYSHALT        = 0x14
+SYSREBOOT      = 0x15
+
+
 
 class commLayer:
     '''
@@ -190,6 +217,18 @@ class commLayer:
             self._keepAlive = saveKeepAlive
         return res if status else None
 
+    def getRxPendingBytes(self):
+        '''
+        '''
+        res = self._serialHandle.inWaiting()
+        return res
+
+    def cleanRxBuff(self):
+        '''
+        '''
+        self._serialHandle.flushInput()
+
+
 class IOBoardComm:
     '''
     Layer to communicate with IO Board.
@@ -225,18 +264,43 @@ class IOBoardComm:
             status &= res != None
         if status:
             status &= ("Ready" in res)
-        if status:
+        if (status):
             logger.info("IOBoard booted")
+            if (self._serialPortHandle.getRxPendingBytes()):
+                self._serialPortHandle.cleanRxBuff()
+                logger.info("Serial Rx buffer cleaned before initialization sequence exit.")
         else:
-            logger.error("IOBoard has failed to boot.")
+            logger.critical("IOBoard has failed to boot.")
         self._isReady = status
         return status
 
-    def _sendIOCmd(self, cmd):
+    def _recvIOMsg(self):
+        '''
+        '''
+        res = None
+        time.sleep(FRAMEDELAYSEC)
+        firstByte = self._serialPortHandle.recvCmd()
+        if (firstByte != None):
+            Rxlen = int(ord(firstByte)/16)
+            RxCS = ord(firstByte)%16
+            nextBytes = self._serialPortHandle.recvCmd(2+Rxlen)
+            if (nextBytes != None):
+                if (self._genCS(nextBytes[1:]) == RxCS):
+                    res = nextBytes[1:]
+                else:
+                    logger.error("CS error on Rx Frame. {}".format(IOBoardComm.displayFrame(firstByte)+IOBoardComm.displayFrame(nextBytes)))
+            else:
+                logger.error("Received frame incomplete.")
+        else:
+            logger.warning("No data to receive.")
+        return res
+
+    def _sendIOMsg(self, cmd):
         '''
         '''
         status = False
         frame = ""
+        self.monitorIOLink()
         self._txIndex = 1 if self._txIndex>=255 else self._txIndex+1
         payloadLen = len(cmd)-1
         if payloadLen < 0 or payloadLen > 15:
@@ -246,33 +310,100 @@ class IOBoardComm:
             frame += chr(self._txIndex)
             for byteElem in cmd:
                 frame += byteElem
+            time.sleep(FRAMEDELAYSEC)
             ret = self._serialPortHandle.ackCmd(frame, 3)
             if (ret!=None):
-                status = IOBoardComm._compareFrame(ret, chr(IOBoardComm._genCS("\xE6"))+chr(self._txIndex)+"\xE6")
+                status = IOBoardComm._compareFrame(ret, chr(IOBoardComm._genCS(chr(CONFIGMSG+SYSACKOK)))+chr(self._txIndex)+chr(CONFIGMSG+SYSACKOK))
             if not status:
-                logger.warning("IOBoard protocol fault for command {}.".format(cmd[0]))
+                logger.warning("IOBoard protocol fault for command {}.".format(hex(ord(cmd[0]))))
             logger.debug("Tx Frame: {}".format(IOBoardComm.displayFrame(frame)))
             logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(ret)))
         return status
 
-    def _enterConfigMode(self):
+    def monitorIOLink(self):
         '''
         '''
-        if (self._isReady):
-            self._sendIOCmd("\xE5")
+        ret = None
+        while (self._serialPortHandle.getRxPendingBytes()):
+            ret = self._recvIOMsg()
+            if (ret != None):
+                self.parseMsg(ret)
 
-    def _exitConfigMode(self):
+    def parseMsg(self, msg):
         '''
         '''
+        logger.info("Pending message: {}".format(IOBoardComm.displayFrame(msg)))
+
+    def enterConfigMode(self):
+        '''
+        '''
+        res = False
         if (self._isReady):
-            self._sendIOCmd("\xEA")
+            res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFENTER))
+        return res
+
+    def exitConfigMode(self):
+        '''
+        '''
+        res = False
+        if (self._isReady):
+            res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFEXIT))
+        return res
+
+    def setPinPurpose(self, pinNumber, purpose):
+        '''
+        '''
+        res = False
+        if (self._isReady):
+            res = self._sendIOMsg(chr(purpose+pinNumber))
+
+        return res
+
+    def readINPin(self, pinNumber):
+        '''
+        '''
+        res = 0
+        ret = None
+        status = False
+        if (self._isReady):
+            status = self._sendIOMsg(chr(INMSG+pinNumber))
+        if status:
+            ret = self._recvIOMsg()
+            if (ret != None):
+                if (len(ret) == 1):
+                    res = ord(ret[0])
+                else:
+                    logger.warning("Bad lenght data received for pin {}. Data: {}".format(pinNumber, IOBoardComm.displayFrame(ret)))
+            else:
+                logger.warning("No value received for pin {}.".format(pinNumber))
+        return res
+
+    def writeOUTPin(self, pinNumber, state):
+        '''
+        '''
+        status = False
+        allPins = (pinNumber == None)
+        if allPins:
+            pinNumber = 0
+        if (self._isReady):
+            status = self._sendIOMsg(chr(OUTMSG+pinNumber)+chr((1 if state else 0)+(240 if allPins else 0)))
+        return status
+
+    def setServoPos(self, pinNumber, pos):
+        '''
+        '''
+        status = False
+        if (self._isReady):
+            status = self._sendIOMsg(chr(SERVOMSG+pinNumber)+chr(pos))
+        return status
 
     def displayFrame(cls, frame):
         '''
         '''
         tmp = ""
-        for byteElem in frame:
-            tmp += hex(ord(byteElem)) + " "
+        if (frame != None):
+            for byteElem in frame:
+                tmp += hex(ord(byteElem)) + " "
         return tmp
     displayFrame = classmethod(displayFrame)
 
@@ -324,6 +455,7 @@ class mainControl:
         '''
         Load and parse IOBoard parameters
         '''
+        logger.debug("Working path: {}".format(os.getcwd()))
         self.settings["serialPort"] = "COM12"
         self.settings["serialBitrate"] = 115200
         logger.debug("self.settings = {}".format(self.settings))
@@ -349,13 +481,6 @@ class mainControl:
         return res
     parseGetOpt = classmethod(parseGetOpt)
 
-    def setIOPurpose(self):
-        '''
-        '''
-        self._IOBoardHandle._enterConfigMode()
-        self._IOBoardHandle._exitConfigMode()
-
-
     def dispHelp(cls):
         '''
         '''
@@ -363,11 +488,51 @@ class mainControl:
         print "  -h, --help: display this help"
     dispHelp = classmethod(dispHelp)
 
+    def setIOPurposes(self):
+        '''
+        '''
+        self._IOBoardHandle.enterConfigMode()
+        self._IOBoardHandle.setPinPurpose(2, INMSG)
+        self._IOBoardHandle.setPinPurpose(3, SERVOMSG)
+        self._IOBoardHandle.setPinPurpose(4, OUTMSG)
+        self._IOBoardHandle.setPinPurpose(14, INMSG)
+        time.sleep(2)
+        self._IOBoardHandle.exitConfigMode()
+
+    def getINstates(self):
+        '''
+        '''
+        logger.info("Value of pin 2: {}".format(self._IOBoardHandle.readINPin(2)))
+        logger.info("Value of pin A0: {}".format(self._IOBoardHandle.readINPin(14)))
+
+    def writeOUTstates(self, state):
+        '''
+        '''
+        self._IOBoardHandle.writeOUTPin(4, state)
+
+    def setAllOff(self):
+        '''
+        '''
+        self._IOBoardHandle.writeOUTPin(None, False)
+
+    def writePosServo(self, pos):
+        '''
+        '''
+        self._IOBoardHandle.setServoPos(3, pos)
+
 if __name__ == "__main__":
 
     programOpt = mainControl.parseGetOpt(sys.argv[1:])
     mainHandle = mainControl()
-    mainHandle.setIOPurpose()
+    mainHandle.setIOPurposes()
+    i = 0
+    while(i<10):
+        time.sleep(1)
+        mainHandle.writeOUTstates(True if i%2 else False)
+        mainHandle.writePosServo(90 if i%4==0 else 95)
+        mainHandle.getINstates()
+        i += 1
+    mainHandle.setAllOff()
 
 
 
