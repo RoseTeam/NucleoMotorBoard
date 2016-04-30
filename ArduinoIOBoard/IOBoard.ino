@@ -111,7 +111,7 @@ uint8_t* LCDBuff = (uint8_t*)calloc(16, sizeof(uint8_t));
 #define LOOPPERIOD 50      //ms
 unsigned long nextLoopTime = 0;
 uint8_t loopCounter = 0;
-uint8_t loopTime = 0;
+uint8_t minLoopFreeTime = 255;
 
 // TODO a watchdog...
 void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
@@ -847,12 +847,14 @@ void loop() {
 #endif
     }
 
-    // loopTime = (nextLoopTime - millis());
-    // appendErrorBuff(I_LOOPLOAD, &loopTime, 1);
+    // minLoopFreeTime = min(minLoopFreeTime, (nextLoopTime - millis()));
+    // appendErrorBuff(I_LOOPLOAD, &minLoopFreeTime, 1);
 
-    while(nextLoopTime > millis()) {
-        // do monitoring and break the loop if necessary
-        if (monitorThreshold()) {break;}    // do checking @ max frequency
+    while(true) {
+        // do monitoring and break the loop if necessary.
+        if (monitorThreshold()) {break;}        // do checking @ max frequency.
+        if (Serial.available()) {break;}        // If a incoming message is pending.
+        if (nextLoopTime < millis()) {break;}   // timeout to perform whole loop.
     }
     nextLoopTime = millis() + LOOPPERIOD;
     if (loopCounter == 0x0F) {loopCounter = 0x00;}
