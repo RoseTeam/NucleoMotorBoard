@@ -1,10 +1,11 @@
 '''
-File: IOBoardGUI.py
-Description: Graphical interface to control IO Board.
+File: IOBoardComm.py
+Description: Framework to control IO Board.
 
 History
 Local versions
-08/12/2014 v0    Version from relayGUI v2.34.
+10/04/2016 v0    Version from relayGUI v2.34.
+27/04/2016 v0.1  Version with IN,OUT,SERVOS,LCD features.
 
 '''
 VERSION='0.1'
@@ -242,6 +243,9 @@ class IOBoardComm:
         self._serialPortHandle = commLayer()
         self._isReady = False
         self._txIndex = 0
+        self._lastRxIndex = 0
+        self._lastAckOKIndex = 0
+        self._lastAckKOIndex = 0
         return
 
     def __del__(self):
@@ -288,6 +292,7 @@ class IOBoardComm:
             RxCS = ord(firstByte)%16
             nextBytes = self._serialPortHandle.recvCmd(2+Rxlen)
             if (nextBytes != None):
+                self._lastRxIndex = ord(nextBytes[0])
                 if (self._genCS(nextBytes[1:]) == RxCS):
                     res = nextBytes[1:]
                 else:
@@ -314,28 +319,39 @@ class IOBoardComm:
             for byteElem in cmd:
                 frame += byteElem
             time.sleep(FRAMEDELAYSEC)
-            ret = self._serialPortHandle.ackCmd(frame, 3)
-            if (ret!=None):
-                status = IOBoardComm._compareFrame(ret, chr(IOBoardComm._genCS(chr(CONFIGMSG+SYSACKOK)))+chr(self._txIndex)+chr(CONFIGMSG+SYSACKOK))
+            status = self._serialPortHandle.sendCmd(frame)
+            logger.debug("Tx Frame: {}".format(IOBoardComm.displayFrame(frame)))
+            if (status):
+                self.monitorIOLink(True)
+                status = (self._txIndex==self._lastAckOKIndex)
             if not status:
                 logger.warning("IOBoard protocol fault for command {}.".format(hex(ord(cmd[0]))))
-            logger.debug("Tx Frame: {}".format(IOBoardComm.displayFrame(frame)))
-            logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(ret)))
         return status
 
-    def monitorIOLink(self):
+    def monitorIOLink(self, waintingIncomingMsg = False):
         '''
         '''
         ret = None
-        while (self._serialPortHandle.getRxPendingBytes()):
+        res = self._serialPortHandle.getRxPendingBytes()
+        while (res or waintingIncomingMsg):
+            waintingIncomingMsg = False
+            logger.debug("{} pending Bytes...".format(res))
             ret = self._recvIOMsg()
             if (ret != None):
+                logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(ret)))
                 self.parseMsg(ret)
+            res = self._serialPortHandle.getRxPendingBytes()
 
     def parseMsg(self, msg):
         '''
         '''
-        logger.info("Pending message: {}".format(IOBoardComm.displayFrame(msg)))
+        msgLen = len(msg)
+        if (msgLen==1 and msg[0]==chr(CONFIGMSG+SYSACKOK)):
+            self._lastAckOKIndex = self._lastRxIndex
+        elif (msgLen==1 and msg[0]==chr(CONFIGMSG+SYSACKKO)):
+            self._lastAckKOIndex = self._lastRxIndex
+        else:
+            logger.warning("Unknown message: {}".format(IOBoardComm.displayFrame(msg)))
 
     def enterConfigMode(self):
         '''
