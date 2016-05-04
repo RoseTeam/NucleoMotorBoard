@@ -6,23 +6,17 @@ History
 Local versions
 10/04/2016 v0    Version from relayGUI v2.34.
 27/04/2016 v0.1  Version with IN,OUT,SERVOS,LCD features.
+04/05/2016 v0.2  Rework logging features.
 
 '''
-VERSION='0.1'
+VERSION='0.2'
 import time
 import serial
 import logging
 import sys
 
-DEBUG_ENABLED = False
-ONLY_DEBUG_LOGS = True
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-steamHandle = logging.StreamHandler()
-steamHandle.setLevel(logging.DEBUG) if DEBUG_ENABLED or ONLY_DEBUG_LOGS else steamHandle.setLevel(logging.INFO)
-steamHandle.setFormatter(logging.Formatter('%(levelname)8s :: %(message)s'))
-logger.addHandler(steamHandle)
-logger.info('IOBoardComm script v%s', VERSION)
+ENABLE_FULL_DEBUG = False       # Enable debug logs and block all serial commands
+ENABLE_ONLY_DEBUG_LOGS = False  # Enable debug logs (serial commands are processed)
 
 FRAMEDELAYSEC = 0.01
 ACK_DELAY = 0.01
@@ -56,6 +50,179 @@ SYSHALT        = 0x14
 SYSREBOOT      = 0x15
 
 
+class IOBoardLogger:
+    '''
+    Subtitute the python logging feature by adding some feature to improve logging performance
+    '''
+
+    LOGGER_NOTSET = 0
+    PY_LOGGER = 1
+    BUFF_LOGGER = 2
+    NOTSET = logging.NOTSET
+    DEBUG = logging.DEBUG
+    INFO = logging.INFO
+    WARNING = logging.WARNING
+    ERROR = logging.ERROR
+    CRITICAL = logging.CRITICAL
+
+    def __init__(self, loggerMode = None):
+        '''
+        Constructor
+        @param loggerMode: Logger mode, PY_LOGGER or BUFF_LOGGER
+        '''
+        self.loggerHandler = None
+        if loggerMode == None:
+            self.loggerMode = IOBoardLogger.LOGGER_NOTSET
+        else:
+            self.loggerMode = loggerMode
+        self.loggerLevel = IOBoardLogger.NOTSET
+
+        self.changeMode(loggerMode)
+        return
+
+    def _formatMsg(self, msgTuple):
+        '''
+        Format buffered messages to a user friendly displaying
+        @param msgTuple: Tuple containing level of message and the message
+        @return: string of formatted message
+        '''
+        ret = ""
+        if (msgTuple[0]==self.DEBUG):
+            ret += "   DEBUG"
+        elif (msgTuple[0]==self.INFO):
+            ret += "    INFO"
+        elif (msgTuple[0]==self.WARNING):
+            ret += " WARNING"
+        elif (msgTuple[0]==self.ERROR):
+            ret += "   ERROR"
+        elif (msgTuple[0]==self.CRITICAL):
+            ret += "CRITICAL"
+        else:
+            ret += "        "
+        ret += ": " + msgTuple[1]
+        return ret
+
+    def changeMode(self, loggerMode):
+        '''
+        Allow to free current logger handler and declare the new logger handler
+        @param loggerMode: Logger mode, PY_LOGGER or BUFF_LOGGER
+        '''
+        self.loggerHandler = None       #unset and free handler
+        self.loggerMode = IOBoardLogger.LOGGER_NOTSET
+        if (loggerMode == IOBoardLogger.PY_LOGGER):
+            self.loggerHandler = logging.getLogger()
+            self.loggerHandler.setLevel(logging.DEBUG)
+            streamHandle = logging.StreamHandler()
+            streamHandle.setLevel(logging.DEBUG)
+            streamHandle.setFormatter(logging.Formatter('%(levelname)8s :: %(message)s'))
+            self.loggerHandler.addHandler(streamHandle)
+            self.loggerMode = loggerMode
+        elif (loggerMode == IOBoardLogger.BUFF_LOGGER):
+            self.loggerHandler = list()
+            self.loggerMode = loggerMode
+        return
+
+    def setLevel(self, loggerLevel = None):
+        '''
+        Set the level of logged messages. By default, messages are logged from INFO level
+        @param loggerLevel: Level of logged messages
+        '''
+        if (loggerLevel == None):
+            self.loggerLevel = IOBoardLogger.INFO
+        else:
+            self.loggerLevel = loggerLevel
+        if (self.loggerMode == IOBoardLogger.PY_LOGGER):
+            self.loggerHandler.setLevel(self.loggerLevel)
+        return
+
+    def debug(self, msg):
+        '''
+        Method to publish debug messages
+        @param msg: Message to log
+        '''
+        if (self.loggerLevel <= self.DEBUG):
+            if (self.loggerMode == self.PY_LOGGER):
+                self.loggerHandler.debug(msg)
+            elif (self.loggerMode == self.BUFF_LOGGER):
+                self.loggerHandler.append((self.DEBUG,msg))
+        return
+
+    def info(self, msg):
+        '''
+        Method to publish info messages
+        @param msg: Message to log
+        '''
+        if (self.loggerLevel <= self.INFO):
+            if (self.loggerMode == self.PY_LOGGER):
+                self.loggerHandler.info(msg)
+            elif (self.loggerMode == self.BUFF_LOGGER):
+                self.loggerHandler.append((self.INFO,msg))
+        return
+
+    def warning(self, msg):
+        '''
+        Method to publish warning messages
+        @param msg: Message to log
+        '''
+        if (self.loggerLevel <= self.WARNING):
+            if (self.loggerMode == self.PY_LOGGER):
+                self.loggerHandler.warning(msg)
+            elif (self.loggerMode == self.BUFF_LOGGER):
+                self.loggerHandler.append((self.WARNING,msg))
+        return
+
+    def error(self, msg):
+        '''
+        Method to publish error messages
+        @param msg: Message to log
+        '''
+        if (self.loggerLevel <= self.ERROR):
+            if (self.loggerMode == self.PY_LOGGER):
+                self.loggerHandler.error(msg)
+            elif (self.loggerMode == self.BUFF_LOGGER):
+                self.loggerHandler.append((self.ERROR,msg))
+        return
+
+    def critical(self, msg):
+        '''
+        Method to publish critical messages
+        @param msg: Message to log
+        '''
+        if (self.loggerLevel <= self.CRITICAL):
+            if (self.loggerMode == self.PY_LOGGER):
+                self.loggerHandler.critical(msg)
+            elif (self.loggerMode == self.BUFF_LOGGER):
+                self.loggerHandler.append((self.CRITICAL,msg))
+        return
+
+    def popBuffMsg(self, loggerLevel = None):
+        '''
+        Unstack buffer until the next <loggerLevel> message and return message as string
+        @param loggerLevel: Level of messages to display
+        @return: string of formatted message
+        '''
+        if loggerLevel == None:
+            loggerLevel = self.INFO
+        if (self.loggerMode == self.BUFF_LOGGER):
+            while (len(self.loggerHandler)):
+                res = self.loggerHandler.pop(0)
+                if res[0] >= loggerLevel:
+                    return self._formatMsg(res)
+        return None
+
+    def unstackBuff(self, loggerLevel = None):
+        '''
+        Unstack whole buffer and print it
+        @param loggerLevel: Level of messages to display
+        '''
+        res = None
+        if (loggerLevel == None):
+            loggerLevel = self.INFO
+        if (self.loggerMode == self.BUFF_LOGGER):
+            while (len(self.loggerHandler)):
+                res = self.popBuffMsg(loggerLevel)
+                if (res): print res
+        return
 
 class commLayer:
     '''
@@ -118,7 +285,7 @@ class commLayer:
         '''
         Open the serial port with the parameters defined by setSerialParameters()
         '''
-        if DEBUG_ENABLED:
+        if ENABLE_FULL_DEBUG:
             logger.warning("DEBUG MODE ENABLED - Opening serial command intercepted.")
             return True
 
@@ -135,7 +302,7 @@ class commLayer:
         '''
         Close the serial port opened by serialLayer methods
         '''
-        if DEBUG_ENABLED:
+        if ENABLE_FULL_DEBUG:
             logger.warning("DEBUG MODE ENABLED - Closing serial command intercepted.")
             return True
 
@@ -154,7 +321,7 @@ class commLayer:
         '''
         Send a command to the communication port configured in the object "commLayer"
         '''
-        if DEBUG_ENABLED:
+        if ENABLE_FULL_DEBUG:
             logger.warning("DEBUG MODE ENABLED - Send serial command intercepted.")
             return True
 
@@ -176,7 +343,7 @@ class commLayer:
         '''
         Send a command to the communication port configured in the object "commLayer" and return the response
         '''
-        if DEBUG_ENABLED:
+        if ENABLE_FULL_DEBUG:
             logger.warning("DEBUG MODE ENABLED - Receive serial command intercepted.")
             return None
 
@@ -229,7 +396,6 @@ class commLayer:
         '''
         '''
         self._serialHandle.flushInput()
-
 
 class IOBoardComm:
     '''
@@ -431,6 +597,18 @@ class IOBoardComm:
             status = self._sendIOMsg(chr(SERVOMSG+pinNumber)+chr(pos))
         return status
 
+    def setDebug(cls, enableFullDebug, enableOnlyDebugLogs):
+        '''
+        Set debug levels (logs & serial interception)
+        @param debugEnabled: Enable
+        @param enableOnlyDebugLogs: Frame
+        '''
+        global ENABLE_FULL_DEBUG
+        global ENABLE_ONLY_DEBUG_LOGS
+        ENABLE_FULL_DEBUG = (enableFullDebug == True)
+        ENABLE_ONLY_DEBUG_LOGS = (enableOnlyDebugLogs == True)
+    setDebug = classmethod(setDebug)
+
     def displayFrame(cls, frame):
         '''
         '''
@@ -462,3 +640,4 @@ class IOBoardComm:
         return True
     _compareFrame = classmethod(_compareFrame)
 
+logger = IOBoardLogger()
