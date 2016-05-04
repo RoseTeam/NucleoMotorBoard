@@ -388,12 +388,14 @@ class commLayer:
 
     def getRxPendingBytes(self):
         '''
+        Get the number of pending bytes in Rx buffer
         '''
         res = self._serialHandle.inWaiting()
         return res
 
     def cleanRxBuff(self):
         '''
+        Clean whole Rx buffer
         '''
         self._serialHandle.flushInput()
 
@@ -412,6 +414,7 @@ class IOBoardComm:
         self._lastRxIndex = 0
         self._lastAckOKIndex = 0
         self._lastAckKOIndex = 0
+        logger.info('IOBoardComm script v{}'.format(VERSION))
         return
 
     def __del__(self):
@@ -421,12 +424,15 @@ class IOBoardComm:
         self._serialPortHandle.closeSerialPort()
         return
 
-    def initBoard(self, serialPort, serialBitrate):
+    def initBoard(self, serialPort, serialBaudrate):
         '''
-        return a relay handle list of all relay found in variantList
+        Configure UART port to use the IO board and check if board is ready (windows compatible)
+        @param serialPort: Name of serial port
+        @param serialBaudrate: Baudrate of serial port
+        @return: True if complete initialization, False else
         '''
         status = True
-        self._serialPortHandle.setSerialParameters(serialPort, serialBitrate)
+        self._serialPortHandle.setSerialParameters(serialPort, serialBaudrate)
         self._serialPortHandle.setKeepPortAlive()
         status &= self._serialPortHandle.openSerialPort()
         if (sys.platform == 'win32'):
@@ -449,6 +455,8 @@ class IOBoardComm:
 
     def _recvIOMsg(self):
         '''
+        Receive a frame and control integrity
+        @return: usefull data (whole frame excepted frame integrity and frame ID bytes)
         '''
         res = None
         time.sleep(FRAMEDELAYSEC)
@@ -471,6 +479,9 @@ class IOBoardComm:
 
     def _sendIOMsg(self, cmd):
         '''
+        Send a frame and control integrity
+        @param cmd: usefull data (whole frame excepted frame integrity and frame ID bytes)
+        @return: True if no issue has been occured, false else.
         '''
         status = False
         frame = ""
@@ -496,20 +507,25 @@ class IOBoardComm:
 
     def monitorIOLink(self, waintingIncomingMsg = False):
         '''
+        Monitor the receive buffer and process incoming frame
+        @param waintingIncomingMsg: Wait the next frame until the serial timeout if True
         '''
-        ret = None
-        res = self._serialPortHandle.getRxPendingBytes()
-        while (res or waintingIncomingMsg):
+        res = None
+        waitingBytes = self._serialPortHandle.getRxPendingBytes()
+        while (waitingBytes or waintingIncomingMsg):
             waintingIncomingMsg = False
-            logger.debug("{} pending Bytes...".format(res))
-            ret = self._recvIOMsg()
-            if (ret != None):
-                logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(ret)))
-                self.parseMsg(ret)
-            res = self._serialPortHandle.getRxPendingBytes()
+            logger.debug("{} pending Bytes...".format(waitingBytes))
+            res = self._recvIOMsg()
+            if (res != None):
+                logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(res)))
+                self.parseMsg(res)
+            waitingBytes = self._serialPortHandle.getRxPendingBytes()
+        return
 
     def parseMsg(self, msg):
         '''
+        Decode incoming message and perform processing if needed
+        @param msg: usefull data from received frame
         '''
         msgLen = len(msg)
         if (msgLen==1 and msg[0]==chr(CONFIGMSG+SYSACKOK)):
@@ -518,9 +534,12 @@ class IOBoardComm:
             self._lastAckKOIndex = self._lastRxIndex
         else:
             logger.warning("Unknown message: {}".format(IOBoardComm.displayFrame(msg)))
+        return
 
     def enterConfigMode(self):
         '''
+        Command to enter IO board in config mode
+        @return: True if no issue has been occured, false else.
         '''
         res = False
         if (self._isReady):
@@ -529,6 +548,8 @@ class IOBoardComm:
 
     def exitConfigMode(self):
         '''
+        Command to exit IO board in config mode
+        @return: True if no issue has been occured, false else.
         '''
         res = False
         if (self._isReady):
@@ -537,6 +558,10 @@ class IOBoardComm:
 
     def setPinPurpose(self, pinNumber, purpose):
         '''
+        Command to set pin purpose (need config mode)
+        @param pinNumber: Pin number
+        @param purpose: Pin purpose (set as input -> INMSG, set as servo -> SERVOMSG)
+        @return: True if no issue has been occured, false else.
         '''
         res = False
         if (self._isReady):
@@ -546,6 +571,9 @@ class IOBoardComm:
 
     def readINPin(self, pinNumber):
         '''
+        Command to read an INPUT pin.
+        @param pinNumber: Pin number
+        @return: Value applied to the pin.
         '''
         res = None
         status = False
@@ -564,6 +592,10 @@ class IOBoardComm:
 
     def writeOUTPin(self, pinNumber, state):
         '''
+        Command to set a state on OUTPUT pin.
+        @param pinNumber: Pin number
+        @param state: state to set on pin.
+        @return: True if no issue has been occured, false else.
         '''
         status = False
         allPins = (pinNumber == None)
@@ -575,6 +607,9 @@ class IOBoardComm:
 
     def writeLCD(self, msg):
         '''
+        Send a message to display on IO board LCD screen (host message menu only).
+        @param msg: Message to display.
+        @return: True if no issue has been occured, false else.
         '''
         status=False
         if (self._isReady):
@@ -583,6 +618,11 @@ class IOBoardComm:
 
     def setLCDColor(self, red, green, blue):
         '''
+        Set color of IO board LCD screen
+        @param red: red value.
+        @param green: green value.
+        @param blue: blue value.
+        @return: True if no issue has been occured, false else.
         '''
         status=False
         if (self._isReady):
@@ -591,6 +631,10 @@ class IOBoardComm:
 
     def setServoPos(self, pinNumber, pos):
         '''
+        Command to set a servo position.
+        @param pinNumber: Pin number where the servo is attached
+        @param pos: Position of servo [0-180].
+        @return: True if no issue has been occured, false else.
         '''
         status = False
         if (self._isReady):
@@ -611,6 +655,9 @@ class IOBoardComm:
 
     def displayFrame(cls, frame):
         '''
+        Formatter to render a frame user friendly
+        @param frame: Frame
+        @return: formatted string of frame
         '''
         tmp = ""
         if (frame != None):
@@ -621,6 +668,9 @@ class IOBoardComm:
 
     def _genCS(cls, data):
         '''
+        Checksum generator
+        @param frame: usefull frame
+        @return: checksum of frame (0x00~0x0F)
         '''
         cs = 0
         for byteElem in data:
@@ -631,6 +681,10 @@ class IOBoardComm:
 
     def _compareFrame(cls, data1, data2):
         '''
+        Frame comparator
+        @param data1: usefull frame 1
+        @param data2: usefull frame 2
+        @return: True if frame are equal.
         '''
         if len(data1) != len(data1):
             return False
