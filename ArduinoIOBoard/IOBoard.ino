@@ -20,8 +20,9 @@ const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
 uint8_t AINState[AINNUM] = {0};
 const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09};
 Servo servoList[PWMNUM];
-#define UIBUTTONINDEX  8
-#define LEDSTATUSINDEX 13
+#define UIBUTTONINDEX    12
+#define UIBUTTONHIGHSTATE 0
+#define LEDSTATUSINDEX   13
 
 // define flags for supported pin uses
 #define UNUSEDPIN   0b00000000
@@ -127,7 +128,7 @@ void setup (void) {
 #endif
 #ifdef UIBUTTONINDEX
     IOAssignation[UIBUTTONINDEX] = INMODE;
-    pinMode((unsigned short)IOList[UIBUTTONINDEX], INPUT);
+    pinMode((unsigned short)IOList[UIBUTTONINDEX], INPUT_PULLUP);
 #endif
 
     // set up the LCD's number of columns and rows:
@@ -140,7 +141,7 @@ void setup (void) {
     lcd.write("Wainting serial ");
 
     Serial.begin(115200);
-    while (!Serial && millis() < 10000) {
+    while (!Serial && millis() < 15000) {
         delay(100); // wait for serial port to connect. Needed for native USB port only
     }
     if (Serial) {
@@ -370,7 +371,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
     if (!switchDisplay) {
         switchDisplay = displayMode;
 #ifdef UIBUTTONINDEX
-        if (digitalRead(IOList[UIBUTTONINDEX])) {
+        if (digitalRead(IOList[UIBUTTONINDEX]) == UIBUTTONHIGHSTATE) {
             if (displayMode == DISPLAYMODENUM) {switchDisplay = 0x01;}
             else {switchDisplay++;}
         }
@@ -709,12 +710,13 @@ void processOut(const uint8_t pin, const bool state, const bool allPins) {
 
 void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
     unsigned short minPulseWidth=0, maxPulseWidth=0;
+    uint8_t res = 0;
     short index = findIndex(pin, PWMList, PWMNUM);
     if (index < 0) {
         return;
     }
-    index = checkPinAndMode(pin, IOList, IONUM, IOAssignation, SERVOMODE);
-    if (index >=0) {
+    res = checkPinAndMode(pin, IOList, IONUM, IOAssignation, SERVOMODE);
+    if (res >=0) {
         if (enable) {
             if (pos <= (uint8_t)180) {
                 if (!servoList[index].attached()) {
