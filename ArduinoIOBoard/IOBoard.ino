@@ -1,3 +1,13 @@
+//
+// File: IOBoard.ino
+// Description: IO Board firmware
+//
+// History
+// Local versions
+// 06/05/2016 v0.3  Fix readINPin issue.
+//
+
+
 // include the library code:
 #include <string.h>
 #include <Servo.h>
@@ -625,7 +635,7 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
     switch (command) {
         case INMSG:
             if (dataLen == 0) {processIn(pin, false);}
-            else if (dataLen == 1)  {processIn(pin, data[0]==0x00);}
+            else if (dataLen == 1)  {processIn(pin, data[0]==0xFF);}
             else {appendErrorBuff(W_UKNOWNPARAMETER, data, dataLen);}
             break;
         case OUTMSG:
@@ -653,37 +663,38 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
 }
 
 void processIn(const uint8_t pin, const bool allPins) {
-    uint8_t buffLen = 0x00;
-    uint8_t readVal = 0x00;
+    uint8_t buffLen = 0x01;
     short index = 0;
     if (allPins) {
+        TxBuff[0] = INMSG|PINMASK;
         for (index=0; index<IONUM; index++) {
-            if (buffLen < TXBUFFLEN && IOList[index] == INMODE) {
+            if (buffLen < TXBUFFLEN && IOAssignation[index] == INMODE) {
                 TxBuff[buffLen] = digitalRead((unsigned short)IOList[index]) ? 0x01 : 0x00;
                 buffLen++;
             }
         }
         for (index=0; index<AINNUM; index++) {
-            if (buffLen < TXBUFFLEN && AINList[index] == AINMODE) {
+            if (buffLen < TXBUFFLEN && AINAssignation[index] == AINMODE) {
                 TxBuff[buffLen] = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
                 buffLen++;
             }
         }
-        sendToSerial(TxBuff,buffLen);
+        sendToSerial(TxBuff, buffLen);
     }
     else {
+        TxBuff[0] = INMSG|pin;
         if (pin < IONUM) {
             index = checkPinAndMode(pin, IOList, IONUM, IOAssignation, INMODE);
             if (index >=0) {
-                readVal = digitalRead((unsigned short)IOList[index]) ? 0x01 : 0x00;
-                sendToSerial(&readVal, 1);
+                TxBuff[1] = digitalRead((unsigned short)IOList[index]) ? 0x01 : 0x00;
+                sendToSerial(TxBuff, 2);
             }
         }
         else {
             index = checkPinAndMode(pin-IONUM, AINList, AINNUM, AINAssignation, AINMODE);
             if (index >=0) {
-                readVal = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
-                sendToSerial(&readVal, 1);
+                TxBuff[1] = (uint8_t)(analogRead((unsigned short)AINList[index])>>2);
+                sendToSerial(TxBuff, 2);
             }
         }
     }

@@ -7,9 +7,11 @@ Local versions
 10/04/2016 v0    Version from relayGUI v2.34.
 27/04/2016 v0.1  Version with IN,OUT,SERVOS,LCD features.
 04/05/2016 v0.2  Rework logging features.
+06/05/2016 v0.3  Rework Rx processing and fix readINPin issue.
 
 '''
-VERSION='0.2'
+
+VERSION='0.3'
 import time
 import serial
 import logging
@@ -20,6 +22,7 @@ ENABLE_ONLY_DEBUG_LOGS = False  # Enable debug logs (serial commands are process
 
 FRAMEDELAYSEC = 0.01
 ACK_DELAY = 0.01
+SERIAL_TIMEOUT = 0.5
 
 # define action messages mask and values
 ACTIONMASK = 0xE0
@@ -253,7 +256,7 @@ class commLayer:
         self._serialHandle.bytesize = bitSize
         self._serialHandle.parity = parity
         self._serialHandle.stopbits = stopBit
-        self._serialHandle.timeout = 0.5
+        self._serialHandle.timeout = SERIAL_TIMEOUT
 
     def getSerialParameters(self):
         '''
@@ -416,10 +419,11 @@ class IOBoardComm:
         '''
         self._serialPortHandle = commLayer()
         self._isReady = False
-        self._txIndex = 0
+        self._lastTxIndex = 0
         self._lastRxIndex = 0
         self._lastAckOKIndex = 0
         self._lastAckKOIndex = 0
+        self._validRxMsg = dict()
         logger.info('IOBoardComm script v{}'.format(VERSION))
         return
 
@@ -490,27 +494,27 @@ class IOBoardComm:
         '''
         status = False
         frame = ""
-        self.monitorIOLink()
-        self._txIndex = 1 if self._txIndex>=255 else self._txIndex+1
+        self.monitorLink()
+        self._lastTxIndex = 1 if self._lastTxIndex>=255 else self._lastTxIndex+1
         payloadLen = len(cmd)-1
         if payloadLen < 0 or payloadLen > 15:
             logger.error("Command length not supported {}".format(IOBoardComm.displayFrame(cmd)))
         else:
             frame += chr(payloadLen*16+IOBoardComm._genCS(cmd))
-            frame += chr(self._txIndex)
+            frame += chr(self._lastTxIndex)
             for byteElem in cmd:
                 frame += byteElem
             time.sleep(FRAMEDELAYSEC)
             status = self._serialPortHandle.sendCmd(frame)
             logger.debug("Tx Frame: {}".format(IOBoardComm.displayFrame(frame)))
             if (status):
-                self.monitorIOLink(True)
-                status = (self._txIndex==self._lastAckOKIndex)
+                self.monitorLink(True)
+                status = (self._lastTxIndex==self._lastAckOKIndex)
             if not status:
-                logger.warning("IOBoard protocol fault for command {}, #ID {}.".format(hex(ord(cmd[0])),self._txIndex))
+                logger.warning("IOBoard protocol fault for command {}, #ID {}.".format(hex(ord(cmd[0])),self._lastTxIndex))
         return status
 
-    def monitorIOLink(self, waintingIncomingMsg = False):
+    def monitorLink(self, waintingIncomingMsg = False):
         '''
         Monitor the receive buffer and process incoming frame
         @param waintingIncomingMsg: Wait the next frame until the serial timeout if True
@@ -521,7 +525,7 @@ class IOBoardComm:
             if (not waintingIncomingMsg):
                 logger.debug("{} pending bytes in Rx buffer...".format(waitingBytes))
             waintingIncomingMsg = False
-            res = self._recvIOMsg()
+            res = self._recvIOMsg()     # this function blocks the code until a messages arrives or serial timeout is reached.
             if (res != None):
                 logger.debug("Rx Frame #ID {}: {}".format(self._lastRxIndex, IOBoardComm.displayFrame(res)))
                 self.parseMsg(res)
@@ -534,13 +538,59 @@ class IOBoardComm:
         @param msg: usefull data from received frame
         '''
         msgLen = len(msg)
-        if (msgLen==1 and msg[0]==chr(CONFIGMSG+SYSACKOK)):
-            self._lastAckOKIndex = self._lastRxIndex
-        elif (msgLen==1 and msg[0]==chr(CONFIGMSG+SYSACKKO)):
-            self._lastAckKOIndex = self._lastRxIndex
-        else:
-            logger.warning("Unknown message: {}".format(IOBoardComm.displayFrame(msg)))
+        pin = 0
+        action = 0
+        if (msgLen>0):
+            pin = ord(msg[0])&PINMASK
+            action = ord(msg[0])&ACTIONMASK
+            if (msgLen == 1): # process message with 0byte of payload )
+                if (action == CONFIGMSG):
+                    if (pin == SYSACKOK):
+                        self._lastAckOKIndex = self._lastRxIndex
+                        logger.info("No IO board error on message #ID {}.".format(self._lastRxIndex))
+                    elif (pin == SYSACKKO):
+                        self._lastAckKOIndex = self._lastRxIndex
+                        logger.error("IO Board error on message #ID {}.".format(self._lastRxIndex))
+                    else:
+                        logger.warning("Unknown Rx system action ({}) on message #ID {}.".format(msg[0], self._lastRxIndex))
+                else:
+                    logger.warning("Unknown 0 byte Rx payload meesage: {}".format(IOBoardComm.displayFrame(msg)))
+            elif (msgLen == 2): # process message with 1byte of payload
+                if (action == INMSG):
+                    self._validRxMsg[msg[0]] = msg[1]
+                    logger.debug("Incomming IN msg #ID {} for pin {}.".format(self._lastRxIndex, pin))
+                else:
+                    logger.warning("Unknown 1 byte Rx payload message: {}".format(IOBoardComm.displayFrame(msg)))
+            else:  # undefined message lenght
+                if (action == INMSG and pin == PINMASK):
+                    self._validRxMsg[msg[0]] = msg[1:]
+                    logger.debug("Incomming global IN msg #ID {}.".format(self._lastRxIndex, pin))
+                else:
+                    logger.warning("Unknown Rx message: {}".format(IOBoardComm.displayFrame(msg)))
         return
+
+    def getValidResponse(self, command, waitingTimeSec = 0):
+        '''
+        Get the validated response for the specified command
+        @param command: specified command
+        @return: Related payload to the command, None if no received message.
+        '''
+        res = None
+        retries = max(0,int(waitingTimeSec/ACK_DELAY))
+        while (True):
+
+            if self._validRxMsg.has_key(command):
+                res = self._validRxMsg[command]
+                del self._validRxMsg[command]
+                break
+            if (retries <= 0):     # exiting the retry loop.
+                break
+            self.monitorLink()
+            retries -= 1
+            time.sleep(ACK_DELAY)
+        if (retries == 0 and waitingTimeSec != 0):
+            logger.warning("Timeout! No message availlable for {} command.".format(IOBoardComm.displayFrame(command)))
+        return res
 
     def enterConfigMode(self):
         '''
@@ -575,20 +625,28 @@ class IOBoardComm:
 
         return res
 
-    def readINPin(self, pinNumber):
+    def readINPin(self, pinNumber = None):
         '''
-        Command to read an INPUT pin.
-        @param pinNumber: Pin number
-        @return: Value applied to the pin.
+        Command to read an INPUT pin or all input pins.
+        @param pinNumber: Pin number or all pins if pinNumber is not set.
+        @return: Value applied to the pin or list of all values.
         '''
         res = None
+        command = ""
         status = False
         if (self._isReady):
-            status = self._sendIOMsg(chr(INMSG+pinNumber))
+            if (pinNumber == None):
+                command = chr(INMSG+PINMASK)
+                command += chr(0xFF)
+            else:
+                command = chr(INMSG+pinNumber)
+            status = self._sendIOMsg(command)
         if status:
-            ret = self._recvIOMsg()
+            ret = self.getValidResponse(command[0], SERIAL_TIMEOUT)
             if (ret != None):
-                if (len(ret) == 1):
+                if (pinNumber == None):
+                    res = [ord(elem) for elem in ret]
+                elif (len(ret) == 1):
                     res = ord(ret[0])
                 else:
                     logger.warning("Bad lenght data received for pin {}. Data: {}".format(pinNumber, IOBoardComm.displayFrame(ret)))
