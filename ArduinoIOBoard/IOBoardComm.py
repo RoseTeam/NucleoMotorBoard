@@ -355,7 +355,9 @@ class commLayer:
             try:
                 logger.debug("Reading {} bytes from serial.".format(bytesToAck))
                 res = self._serialHandle.read(bytesToAck)
-                status &= len(res) == bytesToAck
+                if (len(res) != bytesToAck):
+                    logger.error("Incomplete data. Received {}/{} bytes.".format(bytesToAck, len(res)))
+                    status = False
             except:
                 status = False
                 logger.error("Fail to read data from serial.")
@@ -390,6 +392,10 @@ class commLayer:
         '''
         Get the number of pending bytes in Rx buffer
         '''
+        if ENABLE_FULL_DEBUG:
+            logger.warning("DEBUG MODE ENABLED - getRxLen command intercepted.")
+            return 0
+
         res = self._serialHandle.inWaiting()
         return res
 
@@ -424,19 +430,20 @@ class IOBoardComm:
         self._serialPortHandle.closeSerialPort()
         return
 
-    def initBoard(self, serialPort, serialBaudrate):
+    def initBoard(self, serialPort, serialBaudrate, bypassIsReady = False):
         '''
         Configure UART port to use the IO board and check if board is ready (windows compatible)
         @param serialPort: Name of serial port
         @param serialBaudrate: Baudrate of serial port
+        @param bypass: skip isReady checkup step
         @return: True if complete initialization, False else
         '''
         status = True
         self._serialPortHandle.setSerialParameters(serialPort, serialBaudrate)
         self._serialPortHandle.setKeepPortAlive()
         status &= self._serialPortHandle.openSerialPort()
-        if (sys.platform == 'win32'):
-            time.sleep(2)
+        time.sleep(3)
+        if (not(bypassIsReady) and sys.platform=='win32'):
             res = ""
             if status:
                 res = self._serialPortHandle.recvCmd(7)
@@ -446,8 +453,8 @@ class IOBoardComm:
         if (status):
             logger.info("IOBoard booted")
             if (self._serialPortHandle.getRxPendingBytes()):
+                logger.info("Cleaning serial Rx buffer ({} bytes) before initialization sequence exit.".format(self._serialPortHandle.getRxPendingBytes()))
                 self._serialPortHandle.cleanRxBuff()
-                logger.info("Serial Rx buffer cleaned before initialization sequence exit.")
         else:
             logger.critical("IOBoard has failed to boot.")
         self._isReady = status
@@ -471,8 +478,6 @@ class IOBoardComm:
                     res = nextBytes[1:]
                 else:
                     logger.error("CS error on Rx Frame. {}".format(IOBoardComm.displayFrame(firstByte)+IOBoardComm.displayFrame(nextBytes)))
-            else:
-                logger.error("Received frame incomplete.")
         else:
             logger.warning("No data to receive.")
         return res
@@ -502,7 +507,7 @@ class IOBoardComm:
                 self.monitorIOLink(True)
                 status = (self._txIndex==self._lastAckOKIndex)
             if not status:
-                logger.warning("IOBoard protocol fault for command {}.".format(hex(ord(cmd[0]))))
+                logger.warning("IOBoard protocol fault for command {}, #ID {}.".format(hex(ord(cmd[0])),self._txIndex))
         return status
 
     def monitorIOLink(self, waintingIncomingMsg = False):
@@ -513,11 +518,12 @@ class IOBoardComm:
         res = None
         waitingBytes = self._serialPortHandle.getRxPendingBytes()
         while (waitingBytes or waintingIncomingMsg):
+            if (not waintingIncomingMsg):
+                logger.debug("{} pending bytes in Rx buffer...".format(waitingBytes))
             waintingIncomingMsg = False
-            logger.debug("{} pending Bytes...".format(waitingBytes))
             res = self._recvIOMsg()
             if (res != None):
-                logger.debug("Rx Frame: {}".format(IOBoardComm.displayFrame(res)))
+                logger.debug("Rx Frame #ID {}: {}".format(self._lastRxIndex, IOBoardComm.displayFrame(res)))
                 self.parseMsg(res)
             waitingBytes = self._serialPortHandle.getRxPendingBytes()
         return
@@ -686,7 +692,7 @@ class IOBoardComm:
         @param data2: usefull frame 2
         @return: True if frame are equal.
         '''
-        if len(data1) != len(data1):
+        if len(data1) != len(data2):
             return False
         for i in range(len(data1)):
             if data1[i] != data2[i]:
