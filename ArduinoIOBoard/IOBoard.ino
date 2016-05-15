@@ -6,7 +6,7 @@
 // Local versions
 // 06/05/2016 v0.3  Fix readINPin issue.
 //
-
+#define VERSION "0.3"
 
 // include the library code:
 #include <string.h>
@@ -14,7 +14,6 @@
 #include <Wire.h>
 // #include <avr/wdt.h>    //WDT not supported on Arduino101 (wdt_disable, wdt_enable(WDTO_2S), wdt_reset not supported)
 #include "rgb_lcd.h"
-
 
 // define board capabilities
 #define IONUM 14
@@ -68,6 +67,7 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define SYSRETRIEVEERR 0x00
 #define SYSACKTGL      0x01
 #define SYSWARNERRTGL  0x02
+#define SYSGETVERSION  0x03
 #define SYSCONFENTER   0x05
 #define SYSACKOK       0x06
 #define SYSACKKO       0x07
@@ -91,6 +91,7 @@ uint8_t* TxBuff = (uint8_t*)calloc(TXBUFFLEN, sizeof(uint8_t));
 uint8_t* errorBuff = (uint8_t*)calloc(ERRORBUFFLEN, sizeof(uint8_t));
 unsigned short errBuffLen = 0;
 unsigned short errBuffIndex = 0;
+unsigned short errCount = 0;
 
 // define error messages
 #define E_CRCFAIL         0x01
@@ -215,6 +216,8 @@ void errorDisplayLayout(void) {
         lcd.write("Debug data:");
         displayMode = ERRORDISPLAYMODE;
     }
+    lcd.setCursor(12, 0);
+    lcd.print(formatIntStrLen(errCount,3));
     lcd.setCursor(0, 1);
     if (errBuffLen == 0) {
         lcd.write("  Buffer empty  ");
@@ -433,9 +436,11 @@ uint8_t getIncomingSerial(void) {
 
 void sendAck(bool state = true) {
     uint8_t headerFrame[3] = {0x00, lastMsgID, CONFIGMSG|SYSACKOK};
-    if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
-    headerFrame[0] = genCS(headerFrame+2, 1);
-    Serial.write(headerFrame, 3);
+    if (ackEnabled) {
+        if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
+        headerFrame[0] = genCS(headerFrame+2, 1);
+        Serial.write(headerFrame, 3);
+    }
 }
 
 void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
@@ -463,6 +468,7 @@ uint8_t genCS(const uint8_t* const data, uint8_t dataLen) {
 
 void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInfo, uint8_t infoLen) {
     // warn the host about the error
+    errCount++;
     sendAck(false);
     if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {
         errBuffLen = errBuffIndex;
@@ -482,6 +488,14 @@ void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInf
     errBuffIndex++;
     errBuffLen = max(errBuffLen, errBuffIndex);
     return;
+}
+
+void sendErrorBuff(void) {
+    // sendAck(false);
+    if (errBuffLen > errBuffIndex) {
+        sendToSerial(errorBuff+errBuffIndex, errBuffLen-errBuffIndex);
+    }
+    sendToSerial(errorBuff, errBuffLen);
 }
 
 void processMessage(const uint8_t action, const uint8_t* const data, const uint8_t dataLen) {
@@ -603,7 +617,7 @@ void setServo(const uint8_t pin, const uint8_t minPos, const uint8_t maxPos) {
 void setConfig(const uint8_t pin) {
     switch(pin) {
         case SYSRETRIEVEERR:
-            ;   // retrieve error buffer
+            sendErrorBuff();    // retrieve error buffer
             break;
         case SYSACKTGL:
             ackEnabled = ~ackEnabled;
@@ -615,7 +629,12 @@ void setConfig(const uint8_t pin) {
             configMode = false;   // exit config mode
             break;
         case SYSRSTSTATS:
-            ;   // reset stats
+            errBuffLen = 0;     // reset err buff
+            errBuffIndex = 0;
+            RxErr = 0;          // reset stats
+            RxStat = 0;
+            TxStat = 0;
+            errCount = 0;
             break;
         case SYSREBOOT:
             ;   // reset board
@@ -783,6 +802,10 @@ void processConfig(const uint8_t pin) {
     switch(pin) {
         case SYSRETRIEVEERR:
             ;   // retrieve error buffer
+            break;
+        case SYSGETVERSION:
+            strncpy((char*)TxBuff, VERSION, 3);
+            sendToSerial(TxBuff,3);
             break;
         case SYSCONFENTER:
             configMode = true;   // enter in config mode

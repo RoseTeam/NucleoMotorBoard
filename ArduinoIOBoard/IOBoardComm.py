@@ -44,6 +44,7 @@ I2CLCDCOLOR  = 0x01
 SYSRETRIEVEERR = 0x00
 SYSACKTGL      = 0x01
 SYSWARNERRTGL  = 0x02
+SYSGETVERSION  = 0x03
 SYSCONFENTER   = 0x05
 SYSACKOK       = 0x06
 SYSACKKO       = 0x07
@@ -514,17 +515,17 @@ class IOBoardComm:
                 logger.warning("IOBoard protocol fault for command {}, #ID {}.".format(hex(ord(cmd[0])),self._lastTxIndex))
         return status
 
-    def monitorLink(self, waintingIncomingMsg = False):
+    def monitorLink(self, waitingIncomingMsg = False):
         '''
         Monitor the receive buffer and process incoming frame
-        @param waintingIncomingMsg: Wait the next frame until the serial timeout if True
+        @param waitingIncomingMsg: Wait the next frame until the serial timeout if True
         '''
         res = None
         waitingBytes = self._serialPortHandle.getRxPendingBytes()
-        while (waitingBytes or waintingIncomingMsg):
-            if (not waintingIncomingMsg):
+        while (waitingBytes or waitingIncomingMsg):
+            if (not waitingIncomingMsg):
                 logger.debug("{} pending bytes in Rx buffer...".format(waitingBytes))
-            waintingIncomingMsg = False
+            waitingIncomingMsg = False
             res = self._recvIOMsg()     # this function blocks the code until a messages arrives or serial timeout is reached.
             if (res != None):
                 logger.debug("Rx Frame #ID {}: {}".format(self._lastRxIndex, IOBoardComm.displayFrame(res)))
