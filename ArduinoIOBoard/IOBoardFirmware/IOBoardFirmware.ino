@@ -38,6 +38,7 @@ Servo servoList[PWMNUM];
 #define UIBUTTONINDEX    12
 #define UIBUTTONHIGHSTATE 0
 #define LEDSTATUSINDEX   13
+#define LCDUSED
 #endif
 
 #ifdef ARDUINOUNO
@@ -55,6 +56,7 @@ Servo servoList[PWMNUM];
 #define UIBUTTONINDEX    12
 #define UIBUTTONHIGHSTATE 0
 #define LEDSTATUSINDEX   13
+#define LCDUSED
 #endif
 
 
@@ -93,6 +95,7 @@ uint16_t minMaxServo[PWMNUM] = {0};
 // define I2C pin mapping reuse (all are masked by I2CMSG)
 #define I2CLCDMSG   0x00
 #define I2CLCDCOLOR 0x01
+#define I2CGATEWAY 0x10
 
 // define system pin mapping reuse (all are masked by CONFIGMSG)
 #define SYSRETRIEVEERR 0x00
@@ -146,6 +149,7 @@ unsigned short errCount = 0;
 // ##############################################################################
 
 // define LCD parameters
+#ifdef LCDUSED
 rgb_lcd lcd;
 #define DISPLAYMODENUM    0x06
 #define HOMEDISPLAYMODE   0x01
@@ -156,6 +160,7 @@ rgb_lcd lcd;
 #define IODISPLAYMODE     DISPLAYMODENUM
 uint8_t displayMode = 0x00;
 uint8_t* LCDBuff = (uint8_t*)calloc(16, sizeof(uint8_t));
+#endif
 
 // define main parameters
 #define LOOPPERIOD 50      //ms
@@ -170,7 +175,11 @@ uint8_t minLoopFreeTime = 255;
 
 // ######################## SYSTEM FUNCTIONS ########################
 
-void haltFunc() {while(true){};}    //declare reset function at address 0 == goto 0 address.
+void haltFunc() {
+#ifdef LEDSTATUSINDEX
+    digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], LOW);
+#endif
+    while(true){};}
 
 void(* resetFunc) (void) = 0;   //declare reset function at address 0 == goto 0 address.
 
@@ -188,6 +197,7 @@ void setup (void) {
     pinMode((unsigned short)IOList[UIBUTTONINDEX], INPUT_PULLUP);
 #endif
 
+#ifdef LCDUSED
     // set up the LCD's number of columns and rows:
     lcd.begin(16, 2);
     lcd.setRGB(255, 255, 255);
@@ -196,6 +206,7 @@ void setup (void) {
     lcd.write("Boot on-going...");
     lcd.setCursor(0, 1);
     lcd.write("Wainting serial ");
+#endif
 
     Serial.begin(115200);
     while (!Serial.available() && millis() < 15000) {
@@ -204,14 +215,18 @@ void setup (void) {
     if (Serial.available()) {
         delay(500);
         while(Serial.available()) {Serial.read();}  // flush input serial buffer of previous data
+#ifdef LCDUSED
         lcd.setCursor(0, 1);
         lcd.write("Serial ready    ");
+#endif
         Serial.println("Ready");
     }
     else {
+#ifdef LCDUSED
         lcd.setRGB(255, 0, 0);
         lcd.setCursor(0, 1);
         lcd.write("Serial failure  ");
+#endif
         delay(5000);
         haltFunc();
     }
@@ -221,12 +236,14 @@ void setup (void) {
 void teardone (void) {
     releaseAllServos();
     processOut(0, false, true);
+#ifdef LCDUSED
     lcd.clear();
     lcd.setRGB(255, 0, 0);
     lcd.setCursor(0, 0);
     lcd.write("     System     ");
     lcd.setCursor(0, 1);
     lcd.write("    halted !   ");
+#endif
 }
 
 // ######################## DATA MANAGEMENT ########################
@@ -376,6 +393,7 @@ short checkPin(const uint8_t pin, const uint8_t* const table, const unsigned sho
 
 // ######################## LCD FUNCTION ########################
 
+#ifdef LCDUSED
 void errorDisplayLayout(void) {
     char tmp[2];
     uint8_t index = errBuffIndex;
@@ -571,6 +589,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
         default: break;
     }
 }
+#endif
 
 // ######################## CONFIG FUNCTIONS ########################
 
@@ -722,8 +741,11 @@ void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* 
             else {appendErrorBuff(W_UKNOWNPARAMETER, data, dataLen);}
             break;
         case I2CMSG:
-            if (pin==I2CLCDCOLOR && dataLen==3) {processLCDColor(data);}
+            if (pin == I2CGATEWAY) {appendErrorBuff(W_DEBUG, 0, 0);}    // ToDo: I2C gateway
+#ifdef LCDUSED
+            else if (pin==I2CLCDCOLOR && dataLen==3) {processLCDColor(data);}
             else if (pin==I2CLCDMSG && dataLen!=0) {processLCDmsg(data, dataLen);}
+#endif
             else {appendErrorBuff(W_UKNOWNPARAMETER, 0, 0);}
             break;
         case CONFIGMSG:
@@ -824,6 +846,7 @@ void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
     return;
 }
 
+#ifdef LCDUSED
 void processLCDmsg (const uint8_t* const msg, const uint8_t dataLen) {
     uint8_t index = dataLen;
     strncpy((char*)LCDBuff, (char*)msg, dataLen);
@@ -836,6 +859,7 @@ void processLCDmsg (const uint8_t* const msg, const uint8_t dataLen) {
 void processLCDColor (const uint8_t* const colorFrame) {
     lcd.setRGB(colorFrame[0], colorFrame[1], colorFrame[2]);
 }
+#endif
 
 void releaseAllServos (void) {
     for (uint8_t index=0; index<PWMNUM; index++) {
@@ -924,8 +948,10 @@ void loop() {
     }
 
     if ((loopCounter&0x07) == 0x00) {   //2.5Hz refresh
+#ifdef LCDUSED
         if (displayMode == 0x00) {refreshDisplay(HOMEDISPLAYMODE);}
         else {refreshDisplay();}
+#endif
 #ifdef LEDSTATUSINDEX
         digitalWrite((unsigned short)IOList[LEDSTATUSINDEX], loopCounter&0x08);
 #endif
