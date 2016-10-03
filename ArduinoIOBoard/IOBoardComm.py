@@ -533,6 +533,68 @@ class IOBoardComm:
             waitingBytes = self._serialPortHandle.getRxPendingBytes()
         return
 
+    def userInterpretConfig(self, purpose, pinNumber):
+        '''
+        Provide an human interpretation of a CONFIG command for logger uses.
+        '''
+
+        if (purpose == CONFIGMSG):
+            if (pinNumber == SYSCONFENTER):
+                logger.info("Enter in config mode.")
+            elif (pinNumber == SYSCONFEXIT):
+                logger.info("Exit from config mode.")
+            else:
+                logger.warning("CONF MSG TBD.")
+        elif (purpose == INMSG):
+            logger.info("Configure pin #{} as INPUT.".format(pinNumber))
+        elif (purpose == OUTMSG):
+            logger.info("Configure pin #{} as OUTPUT.".format(pinNumber))
+        elif (purpose == SERVOMSG):
+            logger.info("Configure pin #{} as analog servo port.".format(pinNumber))
+        elif (purpose == PWMMSG):
+            logger.info("Configure pin #{} as PWM.".format(pinNumber))
+        elif (purpose == AX12MSG):
+            logger.debug("AX12MSG TBD.")
+        elif (purpose == I2CMSG):
+            logger.debug("I2CMSG TBD.")
+        elif (purpose == UARTMSG):
+            logger.debug("UARTMSG TBD.")
+        else:
+            logger.warning("Unknown command.")
+
+    def userInterpretCommand(self, purpose, pinNumber, info = None):
+        '''
+        Provide an human interpretation of a classic command for logger uses.
+        '''
+
+        if (purpose == CONFIGMSG):
+            userInterpretConfig(purpose, pinNumber)
+        elif (purpose == INMSG):
+            if (pinNumber == None):
+                logger.info("Read all INPUT pins.")
+            else:
+                logger.info("Read INPUT pin #{}.".format(pinNumber))
+        elif (purpose == OUTMSG):
+            if (pinNumber == 0):
+                logger.info("Set all OUTPUT pin state to {}.".format(info))
+            else:
+                logger.info("Set OUTPUT pin #{} state to {}.".format(pinNumber, info))
+        elif (purpose == SERVOMSG):
+            if (info == None):
+                logger.info("Disable SERVO #{}.".format(pinNumber))
+            else:
+                logger.info("Set SERVO #{} to position {}.".format(pinNumber, info))
+        elif (purpose == PWMMSG):
+            logger.info("PWM TBD.")
+        elif (purpose == AX12MSG):
+            logger.debug("AX12MSG TBD.")
+        elif (purpose == I2CMSG):
+            logger.debug("I2CMSG TBD.")
+        elif (purpose == UARTMSG):
+            logger.debug("UARTMSG TBD.")
+        else:
+            logger.warning("Unknown command.")
+
     def parseMsg(self, msg):
         '''
         Decode incoming message and perform processing if needed
@@ -548,7 +610,7 @@ class IOBoardComm:
                 if (action == CONFIGMSG):
                     if (pin == SYSACKOK):
                         self._lastAckOKIndex = self._lastRxIndex
-                        logger.info("No IO board error on message #ID {}.".format(self._lastRxIndex))
+                        logger.info("Ack received for message #ID {}.".format(self._lastRxIndex))
                     elif (pin == SYSACKKO):
                         self._lastAckKOIndex = self._lastRxIndex
                         logger.error("IO Board error on message #ID {}.".format(self._lastRxIndex))
@@ -562,7 +624,7 @@ class IOBoardComm:
                     logger.debug("Incomming IN msg #ID {} for pin {}.".format(self._lastRxIndex, pin))
                 else:
                     logger.warning("Unknown 1 byte Rx payload message: {}".format(IOBoardComm.displayFrame(msg)))
-            else:  # undefined message lenght
+            else:  # undefined message length
                 if (action == INMSG and pin == PINMASK):
                     self._validRxMsg[msg[0]] = msg[1:]
                     logger.debug("Incomming global IN msg #ID {}.".format(self._lastRxIndex, pin))
@@ -600,6 +662,7 @@ class IOBoardComm:
         '''
         res = False
         if (self._isReady):
+            self.userInterpretConfig(CONFIGMSG, SYSCONFENTER)
             res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFENTER))
         return res
 
@@ -610,10 +673,11 @@ class IOBoardComm:
         '''
         res = False
         if (self._isReady):
+            self.userInterpretConfig(CONFIGMSG, SYSCONFEXIT)
             res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFEXIT))
         return res
 
-    def setPinPurpose(self, pinNumber, purpose):
+    def setPinPurpose(self, pinNumber, purpose, param = None):
         '''
         Command to set pin purpose (need config mode)
         @param pinNumber: Pin number
@@ -622,7 +686,14 @@ class IOBoardComm:
         '''
         res = False
         if (self._isReady):
-            res = self._sendIOMsg(chr(purpose+pinNumber))
+            self.userInterpretConfig(purpose, pinNumber)
+            buff = chr(purpose+pinNumber)
+            if (param != None):
+                for elem in param:
+                    buff += chr(elem)
+            res = self._sendIOMsg(buff)
+        else:
+            logger.error("Board is not ready")
 
         return res
 
@@ -636,12 +707,15 @@ class IOBoardComm:
         command = ""
         status = False
         if (self._isReady):
+            self.userInterpretCommand(INMSG, pinNumber)
             if (pinNumber == None):
                 command = chr(INMSG+PINMASK)
                 command += chr(0xFF)
             else:
                 command = chr(INMSG+pinNumber)
             status = self._sendIOMsg(command)
+        else:
+            logger.error("Board is not ready")
         if status:
             ret = self.getValidResponse(command[0], SERIAL_TIMEOUT)
             if (ret != None):
@@ -650,7 +724,7 @@ class IOBoardComm:
                 elif (len(ret) == 1):
                     res = ord(ret[0])
                 else:
-                    logger.warning("Bad lenght data received for pin {}. Data: {}".format(pinNumber, IOBoardComm.displayFrame(ret)))
+                    logger.warning("Bad length data received for pin {}. Data: {}".format(pinNumber, IOBoardComm.displayFrame(ret)))
             else:
                 logger.warning("No value received for pin {}.".format(pinNumber))
         return res
@@ -667,6 +741,7 @@ class IOBoardComm:
         if allPins:
             pinNumber = 0
         if (self._isReady):
+            self.userInterpretCommand(OUTMSG, pinNumber, state)
             status = self._sendIOMsg(chr(OUTMSG+pinNumber)+chr((1 if state else 0)+(240 if allPins else 0)))
         return status
 
@@ -703,7 +778,20 @@ class IOBoardComm:
         '''
         status = False
         if (self._isReady):
+            self.userInterpretCommand(SERVOMSG, pinNumber, pos)
             status = self._sendIOMsg(chr(SERVOMSG+pinNumber)+chr(pos))
+        return status
+
+    def disableServo(self, pinNumber):
+        '''
+        Command to set a servo position.
+        @param pinNumber: Pin number where the servo is attached
+        @return: True if no issue has been occured, false else.
+        '''
+        status = False
+        if (self._isReady):
+            self.userInterpretCommand(SERVOMSG, pinNumber)
+            status = self._sendIOMsg(chr(SERVOMSG+pinNumber))
         return status
 
     def setDebug(cls, enableFullDebug, enableOnlyDebugLogs):

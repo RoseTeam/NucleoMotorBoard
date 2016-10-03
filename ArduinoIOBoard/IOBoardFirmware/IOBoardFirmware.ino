@@ -5,24 +5,29 @@
 // History
 // Local versions
 // 06/05/2016 v0.3  Fix readINPin issue.
+// 02/10/2016 v0.4  Fix servo issue.
 //
-#define VERSION "0.3"
+#define VERSION "0.4"
 
 // include the library code:
 #include <string.h>
 #include <Servo.h>
 #include <Wire.h>
 // #include <avr/wdt.h>    //WDT not supported on Arduino101 (wdt_disable, wdt_enable(WDTO_2S), wdt_reset not supported)
-#include "rgb_lcd.h"
+#include <rgb_lcd.h>
+
 
 // define board capabilities
+
+// #define ARDUINO101
+#define ARDUINOUNO
+// #define ARDUINOM0
+
+#ifdef ARDUINO101
 #define IONUM 14
 #define AINNUM 6
 #define PWMNUM 4
 // define board ressources & assignations
-bool configMode = false;
-bool ackEnabled = true;
-bool warnErr    = false;
 const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
 uint16_t IOState = 0;
 const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
@@ -32,6 +37,24 @@ Servo servoList[PWMNUM];
 #define UIBUTTONINDEX    12
 #define UIBUTTONHIGHSTATE 0
 #define LEDSTATUSINDEX   13
+#endif
+
+#ifdef ARDUINOUNO
+#define IONUM 14
+#define AINNUM 6
+#define PWMNUM 6
+// define board ressources & assignations
+const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
+uint16_t IOState = 0;
+const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
+uint8_t AINState[AINNUM] = {0};
+const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09, 0x0A, 0x0B};
+Servo servoList[PWMNUM];
+#define UIBUTTONINDEX    12
+#define UIBUTTONHIGHSTATE 0
+#define LEDSTATUSINDEX   13
+#endif
+
 
 // define flags for supported pin uses
 #define UNUSEDPIN   0b00000000
@@ -46,6 +69,12 @@ uint8_t IOAssignation[IONUM] = {0};
 uint8_t AINAssignation[AINNUM] = {0};
 uint8_t AINThreshold[AINNUM] = {0};
 uint16_t minMaxServo[PWMNUM] = {0};
+
+// ############################## Serial protocol: ##############################
+// 1st bype: b7..b4 -> Frame length (3rd frame byte excluded), b3..b0 -> checksum
+// 2nd byte: message ID
+// from 3rd byte: payload.
+// ##############################################################################
 
 // define action messages mask and values
 #define ACTIONMASK 0xE0
@@ -80,7 +109,7 @@ uint16_t minMaxServo[PWMNUM] = {0};
 #define USEFULLFRAMELEN 16
 #define RXBUFFLEN USEFULLFRAMELEN
 #define TXBUFFLEN USEFULLFRAMELEN
-#define ERRORBUFFLEN 30
+#define ERRORBUFFLEN 90
 // define Serial stats & registers
 unsigned short RxStat = 0;
 unsigned short RxErr = 0;
@@ -97,15 +126,22 @@ unsigned short errCount = 0;
 #define E_CRCFAIL         0x01
 #define E_HEADERLENGTH    0x02
 #define E_PAYLOADLENGTH   0x03
-#define I_LOOPLOAD        0x04
-#define W_UKNOWNCOMMAND   0x11
-#define W_UKNOWNPARAMETER 0x12
-#define E_UKNOWNPIN       0x13
-#define W_PINALREADYUSED  0x22
-#define W_LEDSTATUSUSED   0x23
-#define W_UIBUTTONUSED    0x24
-#define E_SERVOINIT       0x25
+#define E_UKNOWNPIN       0x04
+#define E_SERVOINIT       0x05
+#define W_DEBUG           0x20
+#define W_UKNOWNCOMMAND   0x21
+#define W_UKNOWNPARAMETER 0x22
+#define W_PINALREADYUSED  0x23
+#define W_LEDSTATUSUSED   0x24
+#define W_UIBUTTONUSED    0x25
 #define W_WRONGSERVOPARAM 0x26
+#define I_LOOPLOAD        0x51
+
+// ############################## Error format: ##############################
+// 1st bype: errorCode (see above)
+// 2nd byte: message ID
+// from 3rd byte: payload.
+// ##############################################################################
 
 // define LCD parameters
 rgb_lcd lcd;
@@ -121,6 +157,9 @@ uint8_t* LCDBuff = (uint8_t*)calloc(16, sizeof(uint8_t));
 
 // define main parameters
 #define LOOPPERIOD 50      //ms
+bool configMode = false;
+bool ackEnabled = true;
+bool warnErr    = false;
 unsigned long nextLoopTime = 0;
 uint8_t loopCounter = 0;
 uint8_t minLoopFreeTime = 255;
@@ -362,9 +401,9 @@ void homeDisplayLayout(void) {
     if (displayMode != HOMEDISPLAYMODE) {
         // clear the display
         lcd.clear();
-        lcd.write(" Hi! I'm GobGob");
+        lcd.write("     Hello     ");
         lcd.setCursor(0, 1);
-        lcd.write(" Toulouse Robot");
+        lcd.write("I'm futurakart!");
         displayMode = HOMEDISPLAYMODE;
     }
 }
@@ -502,13 +541,13 @@ void processMessage(const uint8_t action, const uint8_t* const data, const uint8
     uint8_t command = action&ACTIONMASK;
     uint8_t pin = action&PINMASK;
 #ifdef LEDSTATUSINDEX
-    if (pin == IOList[LEDSTATUSINDEX] && command != CONFIGMSG) {
+    if (pin == IOList[LEDSTATUSINDEX] && command != CONFIGMSG && command != AX12MSG) {
         appendErrorBuff(W_LEDSTATUSUSED, &action, 1);
         return;
     }
 #endif
 #ifdef UIBUTTONINDEX
-    if (pin == IOList[UIBUTTONINDEX] && command != CONFIGMSG) {
+    if (pin == IOList[UIBUTTONINDEX] && command != CONFIGMSG && command != AX12MSG) {
         appendErrorBuff(W_UIBUTTONUSED, &action, 1);
         return;
     }
@@ -601,7 +640,7 @@ void setServo(const uint8_t pin, const uint8_t minPos, const uint8_t maxPos) {
     if (index < 0) {
         return;
     }
-    index = checkPinAndUpdate(pin, IOList, IONUM, IOAssignation, SERVOMODE);
+    checkPinAndUpdate(pin, IOList, IONUM, IOAssignation, SERVOMODE);
     if (minPos != maxPos) {
         if (minPos <= (uint8_t)180 && maxPos <= (uint8_t)180) {
             minMaxServo[index] = ((uint16_t)minPos<<8)|(uint16_t)maxPos;
@@ -739,7 +778,7 @@ void processOut(const uint8_t pin, const bool state, const bool allPins) {
 }
 
 void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
-    unsigned short minPulseWidth=0, maxPulseWidth=0;
+    int minPulseWidth=0, maxPulseWidth=0;
     uint8_t res = 0;
     short index = findIndex(pin, PWMList, PWMNUM);
     if (index < 0) {
