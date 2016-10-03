@@ -8,10 +8,11 @@ Local versions
 27/04/2016 v0.1  Version with IN,OUT,SERVOS,LCD features.
 04/05/2016 v0.2  Rework logging features.
 06/05/2016 v0.3  Rework Rx processing and fix readINPin issue.
+02/10/2016 v0.4  Minor changes.
 
 '''
 
-VERSION='0.3'
+VERSION='0.4'
 import time
 import serial
 import logging
@@ -420,6 +421,7 @@ class IOBoardComm:
         '''
         self._serialPortHandle = commLayer()
         self._isReady = False
+        self._inConfigMode = False
         self._lastTxIndex = 0
         self._lastRxIndex = 0
         self._lastAckOKIndex = 0
@@ -541,6 +543,8 @@ class IOBoardComm:
         if (purpose == CONFIGMSG):
             if (pinNumber == SYSCONFENTER):
                 logger.info("Enter in config mode.")
+            elif (pinNumber == SYSHALT):
+                logger.info("System halted.")
             elif (pinNumber == SYSCONFEXIT):
                 logger.info("Exit from config mode.")
             else:
@@ -664,6 +668,22 @@ class IOBoardComm:
         if (self._isReady):
             self.userInterpretConfig(CONFIGMSG, SYSCONFENTER)
             res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFENTER))
+            if (res):
+                self._inConfigMode = True
+        return res
+
+    def haltSystem(self):
+        '''
+        Command to halt system. System can be recovered only by hardware reset.
+        Require to be in config mode.
+        @return: True if no issue has been occured, false else.
+        '''
+        res = False
+        if (self._isReady and self._inConfigMode):
+            self.userInterpretConfig(CONFIGMSG, SYSHALT)
+            self._sendIOMsg(chr(CONFIGMSG+SYSHALT))
+            self._isReady = False
+            res = True
         return res
 
     def exitConfigMode(self):
@@ -675,6 +695,8 @@ class IOBoardComm:
         if (self._isReady):
             self.userInterpretConfig(CONFIGMSG, SYSCONFEXIT)
             res = self._sendIOMsg(chr(CONFIGMSG+SYSCONFEXIT))
+            if (res):
+                self._inConfigMode = False
         return res
 
     def setPinPurpose(self, pinNumber, purpose, param = None):
@@ -685,7 +707,9 @@ class IOBoardComm:
         @return: True if no issue has been occured, false else.
         '''
         res = False
-        if (self._isReady):
+        if (not self._inConfigMode):
+            logger.warning("Board is not in config mode")
+        elif (self._isReady):
             self.userInterpretConfig(purpose, pinNumber)
             buff = chr(purpose+pinNumber)
             if (param != None):
@@ -769,7 +793,7 @@ class IOBoardComm:
             status = self._sendIOMsg(chr(I2CMSG+I2CLCDCOLOR)+chr(red%256)+chr(green%256)+chr(blue%256))
         return status
 
-    def setServoPos(self, pinNumber, pos):
+    def writeServoPos(self, pinNumber, pos):
         '''
         Command to set a servo position.
         @param pinNumber: Pin number where the servo is attached

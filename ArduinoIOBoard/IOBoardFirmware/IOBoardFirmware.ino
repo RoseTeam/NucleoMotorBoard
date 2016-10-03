@@ -15,6 +15,7 @@
 #include <Wire.h>
 // #include <avr/wdt.h>    //WDT not supported on Arduino101 (wdt_disable, wdt_enable(WDTO_2S), wdt_reset not supported)
 #include <rgb_lcd.h>
+//#include <DynamixelSerial1.h>
 
 
 // define board capabilities
@@ -40,6 +41,7 @@ Servo servoList[PWMNUM];
 #endif
 
 #ifdef ARDUINOUNO
+//  /!\ Need a 10uF condensator between GND and RESET pin to avoid reset on serial connection
 #define IONUM 14
 #define AINNUM 6
 #define PWMNUM 6
@@ -165,7 +167,12 @@ uint8_t loopCounter = 0;
 uint8_t minLoopFreeTime = 255;
 
 // TODO a watchdog...
-void(* haltFunc) (void) = 0;//declare reset function at address 0 == goto 0 address.
+
+// ######################## SYSTEM FUNCTIONS ########################
+
+void haltFunc() {while(true){};}    //declare reset function at address 0 == goto 0 address.
+
+void(* resetFunc) (void) = 0;   //declare reset function at address 0 == goto 0 address.
 
 void setup (void) {
     // put your setup code here, to run once:
@@ -191,12 +198,15 @@ void setup (void) {
     lcd.write("Wainting serial ");
 
     Serial.begin(115200);
-    while (!Serial && millis() < 15000) {
+    while (!Serial.available() && millis() < 15000) {
         delay(100); // wait for serial port to connect. Needed for native USB port only
     }
-    if (Serial) {
+    if (Serial.available()) {
+        delay(500);
+        while(Serial.available()) {Serial.read();}  // flush input serial buffer of previous data
         lcd.setCursor(0, 1);
         lcd.write("Serial ready    ");
+        Serial.println("Ready");
     }
     else {
         lcd.setRGB(255, 0, 0);
@@ -206,8 +216,6 @@ void setup (void) {
         haltFunc();
     }
     delay(500);
-    Serial.println("Ready");
-    delay(500);
 }
 
 void teardone (void) {
@@ -216,10 +224,12 @@ void teardone (void) {
     lcd.clear();
     lcd.setRGB(255, 0, 0);
     lcd.setCursor(0, 0);
-    lcd.write("Match finished");
+    lcd.write("     System     ");
     lcd.setCursor(0, 1);
-    lcd.write("System halted");
+    lcd.write("    halted !   ");
 }
+
+// ######################## DATA MANAGEMENT ########################
 
 String formatIntStrLen(const unsigned short val, const uint8_t outlen, uint8_t maxlen = 0) {
     String ret = String(val);
@@ -243,6 +253,128 @@ short findIndex(const uint8_t searchVal, const uint8_t* table, const unsigned sh
     while ( index < (short)tableLen && table[index] != searchVal ) index++;
     return ( index == (short)tableLen ? -1 : index );
 }
+
+uint8_t getIncomingSerial(void) {
+    uint8_t headerFrame[3] = {0x00,0x00,0x00};
+    uint8_t payloadLen = 0;
+    uint8_t crc = 0x00;
+
+    if (Serial.readBytes(headerFrame, 3) != 3) {
+        // purge input buffer
+        while(Serial.available()) {Serial.read();}
+        RxErr++;
+        appendErrorBuff(E_HEADERLENGTH, headerFrame, 3);
+        return 0x00;
+    }
+    payloadLen = (headerFrame[0] & 0xF0) >> 4;
+    crc = headerFrame[0] & 0x0F;
+    lastMsgID = headerFrame[1];
+    RxBuff[0] = headerFrame[2];
+    if (Serial.readBytes(RxBuff+1, payloadLen) != (unsigned short) payloadLen) {
+        // purge input buffer
+        while(Serial.available()) {Serial.read();}
+        appendErrorBuff(E_PAYLOADLENGTH, RxBuff+1, payloadLen);
+        RxErr++;
+        return 0x00;
+    }
+    if (genCS(RxBuff, payloadLen+1) != crc) {
+        RxErr++;
+        appendErrorBuff(E_CRCFAIL, RxBuff, payloadLen+1);
+        return 0x00;
+    }
+
+    RxStat++;
+    return payloadLen+1;
+}
+
+void sendAck(bool state = true) {
+    uint8_t headerFrame[3] = {0x00, lastMsgID, CONFIGMSG|SYSACKOK};
+    if (ackEnabled) {
+        if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
+        headerFrame[0] = genCS(headerFrame+2, 1);
+        Serial.write(headerFrame, 3);
+    }
+}
+
+void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
+    uint8_t frameLen = 0;
+    for (unsigned short i = 0; i < buffLen; i += 16) {
+        frameLen = min(16,buffLen-i);
+        Serial.write(((frameLen-1) << 4) | genCS(buffPtr+i, frameLen));
+        Serial.write(lastMsgID);
+        Serial.write(buffPtr+i, frameLen);
+    }
+    TxStat++;
+    return;
+}
+
+uint8_t genCS(const uint8_t* const data, uint8_t dataLen) {
+    uint8_t cs = 0x00;
+    // do a 8bits checksum (overflow is ignored by uint8_t type)
+    for (uint8_t i=0; i<dataLen; i++) {
+        cs += data[i];
+    }
+    // transform checksum to a 4bits checksum by doing another 4bits checksum
+    cs = ((cs&0xF0)>>4)+(cs&0x0F);
+    return cs&0x0F;     //overflow is ignored by mask
+}
+
+void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInfo, uint8_t infoLen) {
+    // warn the host about the error
+    errCount++;
+    sendAck(false);
+    if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {
+        errBuffLen = errBuffIndex;
+        errBuffIndex = 0; //recycle the error buffer
+    }
+    errorBuff[errBuffIndex] = errorCode;
+    errBuffIndex++;
+    errorBuff[errBuffIndex] = lastMsgID;
+    errBuffIndex++;
+    if (additionalInfo != NULL && infoLen > 0) {
+        strncpy((char*)errorBuff+errBuffIndex, (char*)additionalInfo, infoLen);
+        errBuffIndex += infoLen;
+    }
+    errorBuff[errBuffIndex] = 0x0D;
+    errBuffIndex++;
+    errorBuff[errBuffIndex] = 0x0A;
+    errBuffIndex++;
+    errBuffLen = max(errBuffLen, errBuffIndex);
+    return;
+}
+
+void sendErrorBuff(void) {
+    // sendAck(false);
+    if (errBuffLen > errBuffIndex) {
+        sendToSerial(errorBuff+errBuffIndex, errBuffLen-errBuffIndex);
+    }
+    sendToSerial(errorBuff, errBuffLen);
+}
+
+short checkPinAndUpdate(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, uint8_t* const assignationList, const uint8_t pinUsage) {
+    short index = checkPin(pin, table, tableLen);
+    if (index >= 0) {
+        if (assignationList[index]) { appendErrorBuff(W_PINALREADYUSED, &pin, 1); }
+        assignationList[index] = pinUsage;
+    }
+    return index;
+}
+
+short checkPinAndMode(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, const uint8_t* const assignationList, const uint8_t pinUsage) {
+    short index = checkPin(pin, table, tableLen);
+    if (index >= 0) {
+        if ((assignationList[index]&pinUsage) != pinUsage) { index = -1; }
+    }
+    return index;
+}
+
+short checkPin(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen) {
+    short index = findIndex(pin, table, tableLen);
+    if (index < 0) { appendErrorBuff(E_UKNOWNPIN, &pin, 1); }
+    return index;
+}
+
+// ######################## LCD FUNCTION ########################
 
 void errorDisplayLayout(void) {
     char tmp[2];
@@ -440,102 +572,7 @@ void refreshDisplay(uint8_t switchDisplay = 0x00) {
     }
 }
 
-uint8_t getIncomingSerial(void) {
-    uint8_t headerFrame[3] = {0x00,0x00,0x00};
-    uint8_t payloadLen = 0;
-    uint8_t crc = 0x00;
-
-    if (Serial.readBytes(headerFrame, 3) != 3) {
-        // purge input buffer
-        while(Serial.available()) {Serial.read();}
-        RxErr++;
-        appendErrorBuff(E_HEADERLENGTH, headerFrame, 3);
-        return 0x00;
-    }
-    payloadLen = (headerFrame[0] & 0xF0) >> 4;
-    crc = headerFrame[0] & 0x0F;
-    lastMsgID = headerFrame[1];
-    RxBuff[0] = headerFrame[2];
-    if (Serial.readBytes(RxBuff+1, payloadLen) != (unsigned short) payloadLen) {
-        // purge input buffer
-        while(Serial.available()) {Serial.read();}
-        appendErrorBuff(E_PAYLOADLENGTH, RxBuff+1, payloadLen);
-        RxErr++;
-        return 0x00;
-    }
-    if (genCS(RxBuff, payloadLen+1) != crc) {
-        RxErr++;
-        appendErrorBuff(E_CRCFAIL, RxBuff, payloadLen+1);
-        return 0x00;
-    }
-
-    RxStat++;
-    return payloadLen+1;
-}
-
-void sendAck(bool state = true) {
-    uint8_t headerFrame[3] = {0x00, lastMsgID, CONFIGMSG|SYSACKOK};
-    if (ackEnabled) {
-        if (!state) { headerFrame[2] = CONFIGMSG|SYSACKKO; }
-        headerFrame[0] = genCS(headerFrame+2, 1);
-        Serial.write(headerFrame, 3);
-    }
-}
-
-void sendToSerial(const uint8_t* const buffPtr, const unsigned short buffLen) {
-    uint8_t frameLen = 0;
-    for (unsigned short i = 0; i < buffLen; i += 16) {
-        frameLen = min(16,buffLen-i);
-        Serial.write(((frameLen-1) << 4) | genCS(buffPtr+i, frameLen));
-        Serial.write(lastMsgID);
-        Serial.write(buffPtr+i, frameLen);
-    }
-    TxStat++;
-    return;
-}
-
-uint8_t genCS(const uint8_t* const data, uint8_t dataLen) {
-    uint8_t cs = 0x00;
-    // do a 8bits checksum (overflow is ignored by uint8_t type)
-    for (uint8_t i=0; i<dataLen; i++) {
-        cs += data[i];
-    }
-    // transform checksum to a 4bits checksum by doing another 4bits checksum
-    cs = ((cs&0xF0)>>4)+(cs&0x0F);
-    return cs&0x0F;     //overflow is ignored by mask
-}
-
-void appendErrorBuff(const uint8_t errorCode, const uint8_t* const additionalInfo, uint8_t infoLen) {
-    // warn the host about the error
-    errCount++;
-    sendAck(false);
-    if (errBuffIndex+infoLen+4>=ERRORBUFFLEN) {
-        errBuffLen = errBuffIndex;
-        errBuffIndex = 0; //recycle the error buffer
-    }
-    errorBuff[errBuffIndex] = errorCode;
-    errBuffIndex++;
-    errorBuff[errBuffIndex] = lastMsgID;
-    errBuffIndex++;
-    if (additionalInfo != NULL && infoLen > 0) {
-        strncpy((char*)errorBuff+errBuffIndex, (char*)additionalInfo, infoLen);
-        errBuffIndex += infoLen;
-    }
-    errorBuff[errBuffIndex] = 0x0D;
-    errBuffIndex++;
-    errorBuff[errBuffIndex] = 0x0A;
-    errBuffIndex++;
-    errBuffLen = max(errBuffLen, errBuffIndex);
-    return;
-}
-
-void sendErrorBuff(void) {
-    // sendAck(false);
-    if (errBuffLen > errBuffIndex) {
-        sendToSerial(errorBuff+errBuffIndex, errBuffLen-errBuffIndex);
-    }
-    sendToSerial(errorBuff, errBuffLen);
-}
+// ######################## CONFIG FUNCTIONS ########################
 
 void processMessage(const uint8_t action, const uint8_t* const data, const uint8_t dataLen) {
     uint8_t command = action&ACTIONMASK;
@@ -581,29 +618,6 @@ void processConfigMessage(const uint8_t command, const uint8_t pin, const uint8_
             appendErrorBuff(W_UKNOWNCOMMAND, &command, 1);
     }
     return;
-}
-
-short checkPinAndUpdate(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, uint8_t* const assignationList, const uint8_t pinUsage) {
-    short index = checkPin(pin, table, tableLen);
-    if (index >= 0) {
-        if (assignationList[index]) { appendErrorBuff(W_PINALREADYUSED, &pin, 1); }
-        assignationList[index] = pinUsage;
-    }
-    return index;
-}
-
-short checkPinAndMode(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen, const uint8_t* const assignationList, const uint8_t pinUsage) {
-    short index = checkPin(pin, table, tableLen);
-    if (index >= 0) {
-        if ((assignationList[index]&pinUsage) != pinUsage) { index = -1; }
-    }
-    return index;
-}
-
-short checkPin(const uint8_t pin, const uint8_t* const table, const unsigned short tableLen) {
-    short index = findIndex(pin, table, tableLen);
-    if (index < 0) { appendErrorBuff(E_UKNOWNPIN, &pin, 1); }
-    return index;
 }
 
 void setIn(const uint8_t pin, const uint8_t threshold) {
@@ -659,7 +673,7 @@ void setConfig(const uint8_t pin) {
             sendErrorBuff();    // retrieve error buffer
             break;
         case SYSACKTGL:
-            ackEnabled = ~ackEnabled;
+            ackEnabled = ~ackEnabled;   // enable/disable acknowledge on serial command
             break;
         case SYSWARNERRTGL:
             warnErr = ~warnErr;
@@ -676,7 +690,7 @@ void setConfig(const uint8_t pin) {
             errCount = 0;
             break;
         case SYSREBOOT:
-            ;   // reset board
+            resetFunc();   // reset board
             break;
         case SYSHALT:
             teardone();
@@ -688,6 +702,8 @@ void setConfig(const uint8_t pin) {
     }
     return;
 }
+
+// ######################## CONFIG FUNCTIONS ########################
 
 void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* const data, const uint8_t dataLen) {
     switch (command) {
@@ -778,36 +794,27 @@ void processOut(const uint8_t pin, const bool state, const bool allPins) {
 }
 
 void processServo(const uint8_t pin, const bool enable, const uint8_t pos) {
-    int minPulseWidth=0, maxPulseWidth=0;
-    uint8_t res = 0;
+    unsigned short val = pos;
     short index = findIndex(pin, PWMList, PWMNUM);
     if (index < 0) {
         return;
     }
-    res = checkPinAndMode(pin, IOList, IONUM, IOAssignation, SERVOMODE);
-    if (res >=0) {
+    if (checkPinAndMode(pin, IOList, IONUM, IOAssignation, SERVOMODE) >=0) {
         if (enable) {
-            if (pos <= (uint8_t)180) {
+            if (val <= (uint8_t)180) {
                 if (!servoList[index].attached()) {
-                    if (minMaxServo[index] != (uint16_t)0) {
-                        minPulseWidth = map((unsigned short)((minMaxServo[index]&0xFF00)>>8), 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
-                        maxPulseWidth = map((unsigned short)(minMaxServo[index]&0x00FF), 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
-                        if (servoList[index].attach((unsigned short)pin, minPulseWidth, maxPulseWidth) == 0) {
-                            appendErrorBuff(E_SERVOINIT, &pin, 1);
-                            return;
-                        }
-                    }
-                    else {
-                        if (servoList[index].attach((unsigned short)pin) == 0) {
-                            appendErrorBuff(E_SERVOINIT, &pin, 1);
-                            return;
-                        }
+                    if (servoList[index].attach((unsigned short)pin) == 0) {
+                        appendErrorBuff(E_SERVOINIT, &pin, 1);
+                        return;
                     }
                 }
-                servoList[index].write((unsigned short)pos);
+                if (minMaxServo[index] != (uint16_t)0) {
+                    val = min((unsigned short)(minMaxServo[index]&0x00FF),max((unsigned short)((minMaxServo[index]&0xFF00)>>8),val));
+                }
+                servoList[index].write(val);
             }
             else {
-                appendErrorBuff(W_WRONGSERVOPARAM, &pos, 1);
+                appendErrorBuff(W_WRONGSERVOPARAM, (const uint8_t*) &val, 1);
             }
         }
         else {
@@ -882,7 +889,7 @@ bool monitorThreshold(void) {
             if ((IOAssignation[index]&(INMODE|INTHRESHOLD)) == (INMODE|INTHRESHOLD)) {
                 if (((uint8_t)digitalRead(IOList[index])) != (IOState&(1<<index))) {
                     processIn(IOList[index], false);
-                    res=true;
+                    res = true;
                 }
             }
         }
@@ -898,6 +905,8 @@ bool monitorThreshold(void) {
     }
     return res;
 }
+
+// ######################## MAIN FUNCTION ########################
 
 void loop() {
     // put your main code here, to run repeatedly:
