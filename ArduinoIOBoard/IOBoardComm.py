@@ -572,7 +572,7 @@ class IOBoardComm:
         '''
 
         if (purpose == CONFIGMSG):
-            userInterpretConfig(purpose, pinNumber)
+            self.userInterpretConfig(purpose, pinNumber)
         elif (purpose == INMSG):
             if (pinNumber == None):
                 logger.info("Read all INPUT pins.")
