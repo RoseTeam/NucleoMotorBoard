@@ -13,6 +13,7 @@ import time
 import thread
 import IOBoardComm
 import rospy
+from sensor_msgs.msg import Range
 from std_msgs.msg import String
 
 IR_SENSOR = [14, 15]
@@ -34,17 +35,25 @@ class NodeManager:
         self._rate = rate
         self._queue_size = queueSize
         self._publisher = None
-        self._publisher_thread_id = None
+        self._publishers_thread_id = None
         self._is_publisher_running = False
         self._io_board_comm = None
         self._settings = dict()
+        self._publisher_1 = None
+        self._publisher_2 = None
+        self._publisher_3 = None
+        self._publisher_4 = None
 
     def init_node(self):
         '''
         Initialize ROS node.
         Create the publisher of the node
         '''
-        self._publisher = rospy.Publisher(self._name, String, queue_size=self._queue_size)
+        self._publisher = rospy.Publisher(self._name, Range, queue_size=self._queue_size)
+        self._publisher_1 = rospy.Publisher(self._name+1, Range, queue_size=self._queue_size)
+        self._publisher_2 = rospy.Publisher(self._name+2, Range, queue_size=self._queue_size)
+        self._publisher_3 = rospy.Publisher(self._name+3, Range, queue_size=self._queue_size)
+        self._publisher_4 = rospy.Publisher(self._name+4, Range, queue_size=self._queue_size)
         rospy.init_node(self._name, anonymous=True)
 
     def _publish(self):
@@ -54,19 +63,47 @@ class NodeManager:
         try:
             rate = rospy.Rate(self._rate)
             self._is_publisher_running = True
+            msg = Range()
+            #msg.header.frame_id = 'ultrasound'
+            msg.radiation_type = Range.ULTRASOUND
+            #msg.field_of_view = 20
+            msg.min_range = 0.003
+            msg.max_range = 4
             while (self._is_publisher_running and not rospy.is_shutdown()):
-                hello_str = "hello world %s" % rospy.get_time()
-                rospy.loginfo(hello_str)
-                self._publisher.publish(hello_str)
-                rate.sleep()
+                # Set time of the acquisition
+                #msg.header.stamp.secs = #TODO actual time
+
+                # Retrive the last received sensor values
+		buffer_sensor = self.retrieve_sensor_buffers()
+
+                # Loop on the retrive values to publish on the correct topic
+                while (buffer_sensor.hasnext()):
+                    sensor_name, sensor_value = buffer_sensor.getnext()
+                    msg.range = sensor_value
+                    rospy.loginfo(msg)
+                    if (sensor_name == US_SENSOR[0]):
+                        self._publisher_1.publish(msg)
+                    elif (sensor_name == US_SENSOR[1]):
+                        self._publisher_2.publish(msg)
+                    elif (sensor_name == US_SENSOR[2]):
+                        self._publisher_3.publish(msg)
+                    elif (sensor_name == US_SENSOR[3]):
+                        self._publisher_4.publish(msng)
+                    else:
+		        self._publisher.publish(msg)
+                    
+		rate.sleep()
+
+                # Ask the sensors their values
+                self.ask_sensors()
         except rospy.ROSInterruptException:
             pass
 
-    def start_publisher(self):
+    def start_publishers(self):
         '''
         Start a new thread to run the publisher and publish message
         '''
-        self._publisher_thread_id = thread.start_new(self._publish)
+        self._publishers_thread_id = thread.start_new(self._publish)
 
     def stop_publisher(self):
         '''
@@ -135,9 +172,11 @@ class NodeManager:
         IOBoardComm.logger.debug("self.settings = {}".format(self.settings))
 
 if __name__ == "main":
+    rospy.loginfo("Start Sensor node publisher")
     node_manager = NodeManager()
     node_manager.init_node()
-    node_manager.start_publisher()
     node_manager.init_ioboard_config()
+    node_manager.start_publishers()
 
+    #pid_coeff_cmd_topic = rospy.get_param("~pid_coeff_cmd_topic")
 
