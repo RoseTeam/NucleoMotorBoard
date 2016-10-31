@@ -6,115 +6,40 @@
 // Local versions
 // 06/05/2016 v0.3  Fix readINPin issue.
 // 02/10/2016 v0.4  Fix servo issue.
+// 28/10/2016 v0.5  Refactoring for Arduino 1.7.x.
 //
-#define VERSION "0.4"
 
 // include the library code:
+#include "IOBoardFirmware.h"
+
+// from https://forum.arduino.cc/index.php?topic=112261.msg844259#msg844259
+// Only files with the .ino (or .pde) extension are scanned for include files.
+// The IDE copies files to a temporary directory where it performs the build.
+#ifndef __IOBoardFirmware__
+#include <Arduino.h>
 #include <string.h>
 #include <Servo.h>
 #include <Wire.h>
-// #include <avr/wdt.h>    //WDT not supported on Arduino101 (wdt_disable, wdt_enable(WDTO_2S), wdt_reset not supported)
 #include <rgb_lcd.h>
 //#include <DynamixelSerial1.h>
-
-
-// define board capabilities
-
-// #define ARDUINO101
-#define ARDUINOUNO
-// #define ARDUINOM0
-
-#ifdef ARDUINO101
-#define IONUM 14
-#define AINNUM 6
-#define PWMNUM 4
-// define board ressources & assignations
-const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
-uint16_t IOState = 0;
-const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
-uint8_t AINState[AINNUM] = {0};
-const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09};
-Servo servoList[PWMNUM];
-#define UIBUTTONINDEX    12
-#define UIBUTTONHIGHSTATE 0
-#define LEDSTATUSINDEX   13
-#define LCDUSED
-#endif
-
-#ifdef ARDUINOUNO
-//  /!\ Need a 10uF condensator between GND and RESET pin to avoid reset on serial connection
-#define IONUM 14
-#define AINNUM 6
-#define PWMNUM 6
-// define board ressources & assignations
-const uint8_t IOList[IONUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D};
-uint16_t IOState = 0;
-const uint8_t AINList[AINNUM] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
-uint8_t AINState[AINNUM] = {0};
-const uint8_t PWMList[PWMNUM] = {0x03, 0x05, 0x06, 0x09, 0x0A, 0x0B};
-Servo servoList[PWMNUM];
-#define UIBUTTONINDEX    12
-#define UIBUTTONHIGHSTATE 0
-#define LEDSTATUSINDEX   13
-#define LCDUSED
 #endif
 
 
-// define flags for supported pin uses
-#define UNUSEDPIN   0b00000000
-#define INMODE      0b00000001
-#define AINMODE     0b00000010
-#define INTHRESHOLD 0b00000100
-#define OUTMODE     0b00001000
-#define PWMMODE     0b00010000
-#define SERVOMODE   0b00100000
+// define main parameters
+#define LOOPPERIOD 50      //ms
+bool configMode = false;
+bool ackEnabled = true;
+bool warnErr    = false;
+unsigned long nextLoopTime = 0;
+uint8_t loopCounter = 0;
+uint8_t minLoopFreeTime = 255;
+
 // define containers for assignations
 uint8_t IOAssignation[IONUM] = {0};
 uint8_t AINAssignation[AINNUM] = {0};
 uint8_t AINThreshold[AINNUM] = {0};
 uint16_t minMaxServo[PWMNUM] = {0};
 
-// ############################## Serial protocol: ##############################
-// 1st bype: b7..b4 -> Frame length (3rd frame byte excluded), b3..b0 -> checksum
-// 2nd byte: message ID
-// from 3rd byte: payload.
-// ##############################################################################
-
-// define action messages mask and values
-#define ACTIONMASK 0xE0
-#define PINMASK    0x1F
-#define INMSG      0x00
-#define OUTMSG     0x20
-#define SERVOMSG   0x40
-#define PWMMSG     0x60
-#define AX12MSG    0x80
-#define I2CMSG     0xA0
-#define UARTMSG    0xC0
-#define CONFIGMSG  ACTIONMASK
-
-// define I2C pin mapping reuse (all are masked by I2CMSG)
-#define I2CLCDMSG   0x00
-#define I2CLCDCOLOR 0x01
-#define I2CGATEWAY 0x10
-
-// define system pin mapping reuse (all are masked by CONFIGMSG)
-#define SYSRETRIEVEERR 0x00
-#define SYSACKTGL      0x01
-#define SYSWARNERRTGL  0x02
-#define SYSGETVERSION  0x03
-#define SYSCONFENTER   0x05
-#define SYSACKOK       0x06
-#define SYSACKKO       0x07
-#define SYSCONFEXIT    0x0A
-#define SYSRSTSTATS    0x0F
-#define SYSHALT        0x14
-#define SYSREBOOT      0x15
-
-// define Serial parameters
-#define USEFULLFRAMELEN 16
-#define RXBUFFLEN USEFULLFRAMELEN
-#define TXBUFFLEN USEFULLFRAMELEN
-#define ERRORBUFFLEN 90
 // define Serial stats & registers
 unsigned short RxStat = 0;
 unsigned short RxErr = 0;
@@ -127,49 +52,12 @@ unsigned short errBuffLen = 0;
 unsigned short errBuffIndex = 0;
 unsigned short errCount = 0;
 
-// define error messages
-#define E_CRCFAIL         0x01
-#define E_HEADERLENGTH    0x02
-#define E_PAYLOADLENGTH   0x03
-#define E_UKNOWNPIN       0x04
-#define E_SERVOINIT       0x05
-#define W_DEBUG           0x20
-#define W_UKNOWNCOMMAND   0x21
-#define W_UKNOWNPARAMETER 0x22
-#define W_PINALREADYUSED  0x23
-#define W_LEDSTATUSUSED   0x24
-#define W_UIBUTTONUSED    0x25
-#define W_WRONGSERVOPARAM 0x26
-#define I_LOOPLOAD        0x51
-
-// ############################## Error format: ##############################
-// 1st bype: errorCode (see above)
-// 2nd byte: message ID
-// from 3rd byte: payload.
-// ##############################################################################
-
 // define LCD parameters
 #ifdef LCDUSED
 rgb_lcd lcd;
-#define DISPLAYMODENUM    0x06
-#define HOMEDISPLAYMODE   0x01
-#define HOSTDISPLAYMODE   0x02
-#define ERRORDISPLAYMODE  0x03
-#define SERIALDISPLAYMODE 0x04
-#define CONFIGDISPLAYMODE 0x05
-#define IODISPLAYMODE     DISPLAYMODENUM
 uint8_t displayMode = 0x00;
 uint8_t* LCDBuff = (uint8_t*)calloc(16, sizeof(uint8_t));
 #endif
-
-// define main parameters
-#define LOOPPERIOD 50      //ms
-bool configMode = false;
-bool ackEnabled = true;
-bool warnErr    = false;
-unsigned long nextLoopTime = 0;
-uint8_t loopCounter = 0;
-uint8_t minLoopFreeTime = 255;
 
 // TODO a watchdog...
 
@@ -722,7 +610,7 @@ void setConfig(const uint8_t pin) {
     return;
 }
 
-// ######################## CONFIG FUNCTIONS ########################
+// ######################## BASE FUNCTIONS ########################
 
 void processStdMessage(const uint8_t command, const uint8_t pin, const uint8_t* const data, const uint8_t dataLen) {
     switch (command) {
